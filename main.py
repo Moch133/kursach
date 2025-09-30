@@ -6,6 +6,8 @@ import os
 import json
 import tkinter as tk
 from tkinter import simpledialog, messagebox
+import random
+import math
 
 class RacingGameMenu:
     def __init__(self):
@@ -63,6 +65,103 @@ class RacingGameMenu:
         editor = TrackEditor(self.tracks_folder)
         editor.show_editor()
 
+class TrackGenerator:
+    """Класс для генерации случайных треков"""
+    
+    @staticmethod
+    def generate_oval_track(complexity=1.0):
+        """Генерирует овальный трек"""
+        num_points = max(8, int(8 * complexity))
+        points = []
+        
+        # Основные параметры
+        width = 120 + 40 * complexity
+        height = 80 + 40 * complexity
+        
+        for i in range(num_points):
+            angle = 2 * math.pi * i / num_points
+            
+            # Добавляем случайные вариации
+            var_w = random.uniform(-10, 10) * complexity
+            var_h = random.uniform(-10, 10) * complexity
+            
+            x = (width + var_w) * math.cos(angle)
+            y = (height + var_h) * math.sin(angle)
+            points.append((x, y))
+        
+        return points
+    
+    @staticmethod
+    def generate_technical_track(complexity=1.0):
+        """Генерирует технический трек с множеством поворотов"""
+        num_segments = max(6, int(8 * complexity))
+        points = []
+        
+        current_angle = 0
+        x, y = 0, 0
+        
+        for i in range(num_segments):
+            # Случайная длина сегмента
+            length = random.uniform(30, 80)
+            
+            # Случайный угол поворота (более резкие повороты для технических треков)
+            angle_change = random.uniform(-math.pi/1.5, math.pi/1.5) * complexity
+            
+            current_angle += angle_change
+            
+            x += length * math.cos(current_angle)
+            y += length * math.sin(current_angle)
+            
+            points.append((x, y))
+        
+        return points
+    
+    @staticmethod
+    def generate_speed_track(complexity=1.0):
+        """Генерирует скоростной трек с длинными прямыми"""
+        num_segments = max(5, int(6 * complexity))
+        points = []
+        
+        current_angle = 0
+        x, y = 0, 0
+        
+        for i in range(num_segments):
+            # Длинные прямые
+            length = random.uniform(60, 120)
+            
+            # Плавные повороты
+            angle_change = random.uniform(-math.pi/3, math.pi/3) * complexity
+            
+            current_angle += angle_change
+            
+            x += length * math.cos(current_angle)
+            y += length * math.sin(current_angle)
+            
+            points.append((x, y))
+        
+        return points
+    
+    @staticmethod
+    def generate_random_track(complexity=1.0):
+        """Генерирует полностью случайный трек"""
+        track_type = random.choice(['oval', 'technical', 'speed', 'mixed'])
+        
+        if track_type == 'oval':
+            return TrackGenerator.generate_oval_track(complexity)
+        elif track_type == 'technical':
+            return TrackGenerator.generate_technical_track(complexity)
+        elif track_type == 'speed':
+            return TrackGenerator.generate_speed_track(complexity)
+        else:  # mixed
+            # Комбинируем разные стили
+            base_points = TrackGenerator.generate_oval_track(complexity * 0.7)
+            tech_points = TrackGenerator.generate_technical_track(complexity * 0.3)
+            
+            # Объединяем и перемешиваем точки
+            all_points = base_points + tech_points
+            random.shuffle(all_points)
+            return all_points[:max(10, int(12 * complexity))]
+
 class TrackEditor:
     # Статические константы
     COLORS = {
@@ -72,6 +171,8 @@ class TrackEditor:
         'button_hover': '#C0392B',
         'button_delete': '#E74C3C',
         'button_delete_hover': '#C0392B',
+        'button_generate': '#27AE60',
+        'button_generate_hover': '#229954',
         'text': '#ECF0F1',
         'grid': '#566573'
     }
@@ -95,12 +196,17 @@ class TrackEditor:
         self.outer_x = None
         self.outer_y = None
         
+        # Для редактирования точек
+        self.dragging_point = None
+        self.dragging_start_pos = None
+        
         # Ссылки на кнопки
         self.btn_clear = None
         self.btn_save = None
         self.btn_load = None
         self.btn_delete = None
-    
+        self.btn_generate = None
+
     def show_editor(self):
         """Показывает редактор треков"""
         self.fig = plt.figure(figsize=(16, 10))
@@ -113,6 +219,8 @@ class TrackEditor:
         
         # Подключаем обработчики
         self.fig.canvas.mpl_connect('button_press_event', self._on_click)
+        self.fig.canvas.mpl_connect('button_release_event', self._on_release)
+        self.fig.canvas.mpl_connect('motion_notify_event', self._on_motion)
         self.fig.canvas.mpl_connect('pick_event', self._on_track_select)
         
         self._update_display()
@@ -141,21 +249,26 @@ class TrackEditor:
     def _create_buttons(self):
         """Создает кнопки управления"""
         button_height = 0.05
-        button_width = 0.12  # Уменьшили ширину для 4 кнопок
+        button_width = 0.1
         
         # Кнопки управления
         self.btn_clear = self._create_button(0.25, 0.02, button_width, button_height, 
                           'ОЧИСТИТЬ', self._clear_points)
-        self.btn_save = self._create_button(0.38, 0.02, button_width, button_height, 
+        self.btn_save = self._create_button(0.36, 0.02, button_width, button_height, 
                           'СОХРАНИТЬ', self._save_track)
-        self.btn_load = self._create_button(0.51, 0.02, button_width, button_height, 
+        self.btn_load = self._create_button(0.47, 0.02, button_width, button_height, 
                           'ЗАГРУЗИТЬ', self._load_selected_track)
-        self.btn_delete = self._create_button(0.64, 0.02, button_width, button_height, 
+        self.btn_delete = self._create_button(0.58, 0.02, button_width, button_height, 
                           'УДАЛИТЬ', self._delete_track, 
                           color='#E74C3C', hovercolor='#C0392B')
         
+        # Кнопка генерации
+        self.btn_generate = self._create_button(0.69, 0.02, button_width, button_height, 
+                          'СГЕНЕРИРОВАТЬ', self._generate_random,
+                          color='#27AE60', hovercolor='#229954')
+        
         # Слайдер ширины
-        slider_ax = plt.axes([0.77, 0.02, 0.18, button_height])
+        slider_ax = plt.axes([0.80, 0.02, 0.15, button_height])
         slider_ax.set_facecolor(self.COLORS['panel'])
         self.slider_width = Slider(slider_ax, 'Ширина:', 15, 40, 
                                  valinit=self.track_width, valstep=5,
@@ -170,6 +283,14 @@ class TrackEditor:
         btn = Button(ax, text, color=btn_color, hovercolor=btn_hovercolor)
         btn.on_clicked(callback)
         return btn
+    
+    def _generate_random(self, event=None):
+        """Генерирует случайный трек"""
+        self.points = TrackGenerator.generate_random_track(1.0)
+        self.track_closed = True
+        if self._generate_track():
+            self._update_display()
+            print("Случайный трек сгенерирован!")
     
     def _load_track_list(self):
         """Загружает список треков"""
@@ -228,27 +349,64 @@ class TrackEditor:
     
     def _on_click(self, event):
         """Обработчик клика мыши"""
-        if event.inaxes != self.ax_editor or self.track_closed:
+        if event.inaxes != self.ax_editor:
             return
         
-        new_point = (float(event.xdata), float(event.ydata))
+        # Если трек замкнут, проверяем клик по точкам для редактирования
+        if self.track_closed and self.points:
+            # Проверяем клик по точкам (кроме первых двух)
+            for i in range(2, len(self.points)):
+                point = self.points[i]
+                dist = ((event.xdata - point[0])**2 + (event.ydata - point[1])**2)**0.5
+                if dist < 8:  # Радиус захвата точки
+                    self.dragging_point = i
+                    self.dragging_start_pos = (event.xdata, event.ydata)
+                    return
         
-        # Проверяем расстояние до существующих точек
-        if self.points:
-            min_dist = min(self._distance(new_point, p) for p in self.points)
-            if min_dist < 10:
-                return
-        
-        self.points.append(new_point)
-        
-        # Проверяем замыкание
-        if len(self.points) >= 3:
-            first_point = self.points[0]
-            if self._distance(new_point, first_point) < 25:
-                self.points[-1] = first_point
-                self.track_closed = True
-                print("Трек замкнут!")
+        # Обычное добавление точек (только если трек не замкнут)
+        if not self.track_closed:
+            new_point = (float(event.xdata), float(event.ydata))
             
+            # Проверяем расстояние до существующих точек
+            if self.points:
+                min_dist = min(self._distance(new_point, p) for p in self.points)
+                if min_dist < 10:
+                    return
+            
+            self.points.append(new_point)
+            
+            # Проверяем замыкание
+            if len(self.points) >= 3:
+                first_point = self.points[0]
+                if self._distance(new_point, first_point) < 25:
+                    self.points[-1] = first_point
+                    self.track_closed = True
+                    print("Трек замкнут!")
+                
+                if self._generate_track():
+                    self._update_display()
+    
+    def _on_release(self, event):
+        """Обработчик отпускания кнопки мыши"""
+        if self.dragging_point is not None:
+            self.dragging_point = None
+            self.dragging_start_pos = None
+            # Перестраиваем трек после перемещения точки
+            if self._generate_track():
+                self._update_display()
+    
+    def _on_motion(self, event):
+        """Обработчик движения мыши"""
+        if (self.dragging_point is not None and event.inaxes == self.ax_editor and 
+            event.xdata is not None and event.ydata is not None):
+            # Обновляем позицию точки
+            self.points[self.dragging_point] = (float(event.xdata), float(event.ydata))
+            
+            # Если перемещаем последнюю точку (которая равна первой), обновляем и первую
+            if self.track_closed and self.dragging_point == len(self.points) - 1:
+                self.points[0] = (float(event.xdata), float(event.ydata))
+            
+            # Перестраиваем трек в реальном времени
             if self._generate_track():
                 self._update_display()
     
@@ -360,25 +518,32 @@ class TrackEditor:
         self.ax_editor.grid(True, alpha=0.3, color=self.COLORS['grid'])
         self.ax_editor.set_facecolor(self.COLORS['background'])
         
-        # Заголовок
-        title = 'Трек замкнут!' if self.track_closed else 'Добавляйте точки'
-        self.ax_editor.set_title(title, fontsize=14, color=self.COLORS['text'], pad=20)
+        # Заголовок с инструкциями
+        if self.track_closed:
+            title = 'Трек замкнут! Перетаскивайте точки для редактирования (первые две точки скрыты)'
+        else:
+            title = 'Добавляйте точки (первые две точки будут скрыты после замыкания)'
+        self.ax_editor.set_title(title, fontsize=12, color=self.COLORS['text'], pad=20)
         
-        # Рисуем точки
+        # Рисуем точки (скрываем первые две если трек замкнут)
         if self.points:
-            points_array = np.array(self.points)
-            self.ax_editor.scatter(points_array[:, 0], points_array[:, 1], 
-                                 c='#3498DB', s=40, zorder=5, edgecolors='white')
+            points_to_display = self.points
+            if self.track_closed and len(self.points) > 2:
+                points_to_display = self.points[2:]  # Скрываем первые две точки
             
-            # Первая точка - зеленая
+            points_array = np.array(points_to_display)
+            
+            # Рисуем только видимые точки
             if len(points_array) > 0:
-                self.ax_editor.scatter(points_array[0:1, 0], points_array[0:1, 1], 
-                                     c='#2ECC71', s=60, zorder=6, edgecolors='white')
+                self.ax_editor.scatter(points_array[:, 0], points_array[:, 1], 
+                                     c='#3498DB', s=50, zorder=5, edgecolors='white', 
+                                     picker=True)  # Включаем возможность выбора для редактирования
             
-            # Линии между точками
+            # Линии между точками (все точки)
+            all_points_array = np.array(self.points)
             if len(self.points) > 1:
-                self.ax_editor.plot(points_array[:, 0], points_array[:, 1], 
-                                  '#3498DB', alpha=0.5, linewidth=1, linestyle='--')
+                self.ax_editor.plot(all_points_array[:, 0], all_points_array[:, 1], 
+                                  '#3498DB', alpha=0.3, linewidth=1, linestyle='--')
         
         # Рисуем трек
         if self.current_track and self.inner_x is not None:
@@ -399,6 +564,8 @@ class TrackEditor:
         status = f"Точек: {len(self.points)}"
         if self.track_closed:
             status += " (замкнут)"
+            if len(self.points) > 2:
+                status += f"\nВидимых точек: {len(self.points) - 2}"
         
         self.ax_editor.text(0.02, 0.98, status, transform=self.ax_editor.transAxes,
                           fontsize=11, color=self.COLORS['text'], verticalalignment='top',
@@ -416,6 +583,8 @@ class TrackEditor:
         self.inner_y = None
         self.outer_x = None
         self.outer_y = None
+        self.dragging_point = None
+        self.dragging_start_pos = None
         self._update_display()
     
     def _save_track(self, event=None):
@@ -540,10 +709,15 @@ class TrackEditor:
                 self.selected_track = None
                 
                 # Если удалили загруженный трек, очищаем редактор
-                if (self.current_track and 
-                    self.current_track.get('points') == 
-                    [tuple(point) for point in json.load(open(filename, 'r'))['points']]):
-                    self._clear_points()
+                if self.current_track and os.path.exists(filename):
+                    try:
+                        with open(filename, 'r') as f:
+                            deleted_track = json.load(f)
+                        if (self.current_track.get('points') == 
+                            [tuple(point) for point in deleted_track['points']]):
+                            self._clear_points()
+                    except:
+                        pass
                 
                 self._load_track_list()
             else:
