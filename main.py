@@ -105,7 +105,7 @@ class RacingGame:
         """Открывает редактор треков"""
         print("Открытие редактора треков...")
         plt.close(self.fig)
-        editor = TrackEditor(self.tracks_folder)
+        editor = TrackEditor(self.tracks_folder, self.cars_folder)
         editor.run()
 
     def _open_simulation(self, event=None):
@@ -133,8 +133,9 @@ class TrackEditor:
         'grid': '#2d4059'
     }
 
-    def __init__(self, tracks_folder):
+    def __init__(self, tracks_folder, cars_folder):
         self.tracks_folder = tracks_folder
+        self.cars_folder = cars_folder
         self.fig = None
         self.ax_main = None
         self.ax_list = None
@@ -153,6 +154,7 @@ class TrackEditor:
         self.btn_save = None
         self.btn_load = None
         self.btn_delete = None
+        self.btn_simulate = None
         self.width_slider = None
 
     def run(self):
@@ -217,8 +219,14 @@ class TrackEditor:
                                  color=self.COLORS['accent'], hovercolor='#c73550')
         self.btn_delete.on_clicked(self._delete_track)
 
+        # Кнопка перехода в симуляцию
+        btn_simulate_ax = plt.axes([0.69, 0.02, 0.15, 0.05])
+        self.btn_simulate = Button(btn_simulate_ax, 'ПЕРЕЙТИ В СИМУЛЯЦИЮ',
+                                   color='#27ae60', hovercolor='#229954')
+        self.btn_simulate.on_clicked(self._open_simulation)
+
         # Слайдер ширины трека
-        slider_ax = plt.axes([0.69, 0.02, 0.15, 0.05])
+        slider_ax = plt.axes([0.85, 0.02, 0.1, 0.05])
         slider_ax.set_facecolor(self.COLORS['panel'])
         self.width_slider = Slider(slider_ax, 'Ширина:', 10, 40,
                                    valinit=self.track_width, valstep=2,
@@ -265,11 +273,11 @@ class TrackEditor:
 
     def _on_click(self, event):
         """Обработчик клика мыши"""
-        if event.inaxes != self.ax_main:
+        if event.inaxes != self.ax_main or event.xdata is None or event.ydata is None:
             return
 
         # Проверка редактирования существующих точек
-        if self.is_closed and self.points:
+        if self.points:
             for i in range(len(self.points)):
                 dist = math.hypot(event.xdata - self.points[i][0],
                                   event.ydata - self.points[i][1])
@@ -281,20 +289,22 @@ class TrackEditor:
         # Добавление новой точки
         new_point = (float(event.xdata), float(event.ydata))
 
-        # Проверка минимального расстояния
-        if self.points:
-            min_dist = min(math.hypot(new_point[0] - p[0], new_point[1] - p[1])
-                           for p in self.points)
-            if min_dist < 10:
-                return
-
+        # УБРАНА ПРОВЕРКА МИНИМАЛЬНОГО РАССТОЯНИЯ - это была основная проблема
+        # Теперь точки можно ставить в любом месте без ограничений
         self.points.append(new_point)
+        print(f"Добавлена точка {len(self.points)}: {new_point}")
 
-        # Проверка замыкания трека
-        if len(self.points) >= 3:
+        # Если трек был замкнут и мы добавляем новую точку, размыкаем его
+        if self.is_closed:
+            self.is_closed = False
+            print("Трек разомкнут - добавлена новая точка")
+
+        # Проверка замыкания трека - только если трек еще не замкнут
+        if len(self.points) >= 3 and not self.is_closed:
             first = self.points[0]
-            if math.hypot(new_point[0] - first[0], new_point[1] - first[1]) < 20:
-                self.points[-1] = first
+            distance_to_first = math.hypot(new_point[0] - first[0], new_point[1] - first[1])
+            if distance_to_first < 30:  # Увеличил расстояние для более легкого замыкания
+                self.points[-1] = first  # Заменяем последнюю точку на первую
                 self.is_closed = True
                 print("Трек замкнут!")
 
@@ -349,30 +359,35 @@ class TrackEditor:
             points[-1] = points[0]
 
         # Создание сглаженной центральной линии
-        n_points = min(100, len(points) * 10)
+        # Увеличиваем количество точек для лучшего качества
+        n_points = min(200, max(50, len(points) * 15))
         t = np.arange(len(points))
-        t_new = np.linspace(0, len(points) - 1, n_points)
+        
+        if len(points) > 1:
+            t_new = np.linspace(0, len(points) - 1, n_points)
 
-        points_array = np.array(points)
-        center_x = np.interp(t_new, t, points_array[:, 0])
-        center_y = np.interp(t_new, t, points_array[:, 1])
+            points_array = np.array(points)
+            
+            # Используем линейную интерполяцию для надежности
+            center_x = np.interp(t_new, t, points_array[:, 0])
+            center_y = np.interp(t_new, t, points_array[:, 1])
 
-        if self.is_closed:
-            center_x[-1] = center_x[0]
-            center_y[-1] = center_y[0]
+            if self.is_closed:
+                center_x[-1] = center_x[0]
+                center_y[-1] = center_y[0]
 
-        # Создание границ трека
-        success = self._create_track_boundaries(center_x, center_y)
+            # Создание границ трека
+            success = self._create_track_boundaries(center_x, center_y)
 
-        if success:
-            self.current_track = {
-                'center_line': (center_x.tolist(), center_y.tolist()),
-                'inner_boundary': (self.inner_x.tolist(), self.inner_y.tolist()),
-                'outer_boundary': (self.outer_x.tolist(), self.outer_y.tolist()),
-                'points': points_array.tolist(),
-                'width': self.track_width,
-                'closed': self.is_closed
-            }
+            if success:
+                self.current_track = {
+                    'center_line': (center_x.tolist(), center_y.tolist()),
+                    'inner_boundary': (self.inner_x.tolist(), self.inner_y.tolist()),
+                    'outer_boundary': (self.outer_x.tolist(), self.outer_y.tolist()),
+                    'points': points_array.tolist(),
+                    'width': self.track_width,
+                    'closed': self.is_closed
+                }
 
         self._update_display()
 
@@ -543,6 +558,13 @@ class TrackEditor:
 
         root.destroy()
 
+    def _open_simulation(self, event=None):
+        """Переходит в симуляцию гонки"""
+        print("Переход в симуляцию...")
+        plt.close(self.fig)
+        simulation = RaceSimulation(self.tracks_folder, self.cars_folder)
+        simulation.run()
+
     def _show_message(self, text):
         """Показывает временное сообщение"""
         self.ax_main.set_title(text, fontsize=12, color=self.COLORS['accent'], pad=20)
@@ -582,6 +604,7 @@ class RaceSimulation:
         self.btn_start = None
         self.btn_stop = None
         self.btn_reset = None
+        self.btn_editor = None
 
     def run(self):
         """Запускает симуляцию"""
@@ -636,6 +659,12 @@ class RaceSimulation:
         self.btn_reset = Button(btn_reset_ax, 'СБРОС',
                                 color='#f39c12', hovercolor='#d68910')
         self.btn_reset.on_clicked(self._reset_simulation)
+
+        # Кнопка перехода в редактор
+        btn_editor_ax = plt.axes([0.64, 0.02, 0.12, 0.06])
+        self.btn_editor = Button(btn_editor_ax, 'РЕДАКТОР',
+                                 color='#3498db', hovercolor='#2980b9')
+        self.btn_editor.on_clicked(self._open_editor)
 
     def _load_car_sprites(self):
         """Загружает спрайты машинок с разными состояниями"""
@@ -997,6 +1026,13 @@ class RaceSimulation:
         if self.track_data:
             self._initialize_cars()
         self._update_display()
+
+    def _open_editor(self, event=None):
+        """Переходит в редактор треков"""
+        print("Переход в редактор...")
+        plt.close(self.fig)
+        editor = TrackEditor(self.tracks_folder, self.cars_folder)
+        editor.run()
 
     def _run_simulation_loop(self):
         """Основной цикл симуляции с улучшенной физикой"""
