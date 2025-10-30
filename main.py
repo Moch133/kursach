@@ -11,6 +11,8 @@ from tkinter import simpledialog, messagebox
 import time
 import glob
 import math
+from PIL import Image
+import io
 
 
 class RacingGame:
@@ -105,7 +107,7 @@ class RacingGame:
         """Открывает редактор треков"""
         print("Открытие редактора треков...")
         plt.close(self.fig)
-        editor = TrackEditor(self.tracks_folder, self.cars_folder)
+        editor = TrackEditor(self.tracks_folder)
         editor.run()
 
     def _open_simulation(self, event=None):
@@ -133,9 +135,8 @@ class TrackEditor:
         'grid': '#2d4059'
     }
 
-    def __init__(self, tracks_folder, cars_folder):
+    def __init__(self, tracks_folder):
         self.tracks_folder = tracks_folder
-        self.cars_folder = cars_folder
         self.fig = None
         self.ax_main = None
         self.ax_list = None
@@ -154,7 +155,6 @@ class TrackEditor:
         self.btn_save = None
         self.btn_load = None
         self.btn_delete = None
-        self.btn_simulate = None
         self.width_slider = None
 
     def run(self):
@@ -219,14 +219,8 @@ class TrackEditor:
                                  color=self.COLORS['accent'], hovercolor='#c73550')
         self.btn_delete.on_clicked(self._delete_track)
 
-        # Кнопка перехода в симуляцию
-        btn_simulate_ax = plt.axes([0.69, 0.02, 0.15, 0.05])
-        self.btn_simulate = Button(btn_simulate_ax, 'ПЕРЕЙТИ В СИМУЛЯЦИЮ',
-                                   color='#27ae60', hovercolor='#229954')
-        self.btn_simulate.on_clicked(self._open_simulation)
-
         # Слайдер ширины трека
-        slider_ax = plt.axes([0.85, 0.02, 0.1, 0.05])
+        slider_ax = plt.axes([0.69, 0.02, 0.15, 0.05])
         slider_ax.set_facecolor(self.COLORS['panel'])
         self.width_slider = Slider(slider_ax, 'Ширина:', 10, 40,
                                    valinit=self.track_width, valstep=2,
@@ -273,11 +267,11 @@ class TrackEditor:
 
     def _on_click(self, event):
         """Обработчик клика мыши"""
-        if event.inaxes != self.ax_main or event.xdata is None or event.ydata is None:
+        if event.inaxes != self.ax_main:
             return
 
         # Проверка редактирования существующих точек
-        if self.points:
+        if self.is_closed and self.points:
             for i in range(len(self.points)):
                 dist = math.hypot(event.xdata - self.points[i][0],
                                   event.ydata - self.points[i][1])
@@ -289,22 +283,20 @@ class TrackEditor:
         # Добавление новой точки
         new_point = (float(event.xdata), float(event.ydata))
 
-        # УБРАНА ПРОВЕРКА МИНИМАЛЬНОГО РАССТОЯНИЯ - это была основная проблема
-        # Теперь точки можно ставить в любом месте без ограничений
+        # Проверка минимального расстояния
+        if self.points:
+            min_dist = min(math.hypot(new_point[0] - p[0], new_point[1] - p[1])
+                           for p in self.points)
+            if min_dist < 10:
+                return
+
         self.points.append(new_point)
-        print(f"Добавлена точка {len(self.points)}: {new_point}")
 
-        # Если трек был замкнут и мы добавляем новую точку, размыкаем его
-        if self.is_closed:
-            self.is_closed = False
-            print("Трек разомкнут - добавлена новая точка")
-
-        # Проверка замыкания трека - только если трек еще не замкнут
-        if len(self.points) >= 3 and not self.is_closed:
+        # Проверка замыкания трека
+        if len(self.points) >= 3:
             first = self.points[0]
-            distance_to_first = math.hypot(new_point[0] - first[0], new_point[1] - first[1])
-            if distance_to_first < 30:  # Увеличил расстояние для более легкого замыкания
-                self.points[-1] = first  # Заменяем последнюю точку на первую
+            if math.hypot(new_point[0] - first[0], new_point[1] - first[1]) < 20:
+                self.points[-1] = first
                 self.is_closed = True
                 print("Трек замкнут!")
 
@@ -359,35 +351,30 @@ class TrackEditor:
             points[-1] = points[0]
 
         # Создание сглаженной центральной линии
-        # Увеличиваем количество точек для лучшего качества
-        n_points = min(200, max(50, len(points) * 15))
+        n_points = min(100, len(points) * 10)
         t = np.arange(len(points))
-        
-        if len(points) > 1:
-            t_new = np.linspace(0, len(points) - 1, n_points)
+        t_new = np.linspace(0, len(points) - 1, n_points)
 
-            points_array = np.array(points)
-            
-            # Используем линейную интерполяцию для надежности
-            center_x = np.interp(t_new, t, points_array[:, 0])
-            center_y = np.interp(t_new, t, points_array[:, 1])
+        points_array = np.array(points)
+        center_x = np.interp(t_new, t, points_array[:, 0])
+        center_y = np.interp(t_new, t, points_array[:, 1])
 
-            if self.is_closed:
-                center_x[-1] = center_x[0]
-                center_y[-1] = center_y[0]
+        if self.is_closed:
+            center_x[-1] = center_x[0]
+            center_y[-1] = center_y[0]
 
-            # Создание границ трека
-            success = self._create_track_boundaries(center_x, center_y)
+        # Создание границ трека
+        success = self._create_track_boundaries(center_x, center_y)
 
-            if success:
-                self.current_track = {
-                    'center_line': (center_x.tolist(), center_y.tolist()),
-                    'inner_boundary': (self.inner_x.tolist(), self.inner_y.tolist()),
-                    'outer_boundary': (self.outer_x.tolist(), self.outer_y.tolist()),
-                    'points': points_array.tolist(),
-                    'width': self.track_width,
-                    'closed': self.is_closed
-                }
+        if success:
+            self.current_track = {
+                'center_line': (center_x.tolist(), center_y.tolist()),
+                'inner_boundary': (self.inner_x.tolist(), self.inner_y.tolist()),
+                'outer_boundary': (self.outer_x.tolist(), self.outer_y.tolist()),
+                'points': points_array.tolist(),
+                'width': self.track_width,
+                'closed': self.is_closed
+            }
 
         self._update_display()
 
@@ -558,13 +545,6 @@ class TrackEditor:
 
         root.destroy()
 
-    def _open_simulation(self, event=None):
-        """Переходит в симуляцию гонки"""
-        print("Переход в симуляцию...")
-        plt.close(self.fig)
-        simulation = RaceSimulation(self.tracks_folder, self.cars_folder)
-        simulation.run()
-
     def _show_message(self, text):
         """Показывает временное сообщение"""
         self.ax_main.set_title(text, fontsize=12, color=self.COLORS['accent'], pad=20)
@@ -596,6 +576,7 @@ class RaceSimulation:
         self.track_data = None
         self.car_sprites = {}
         self.car_objects = []
+        self.car_artists = []  # Для хранения художников машинок
 
         self.is_running = False
         self.simulation_step = 0
@@ -604,7 +585,6 @@ class RaceSimulation:
         self.btn_start = None
         self.btn_stop = None
         self.btn_reset = None
-        self.btn_editor = None
 
     def run(self):
         """Запускает симуляцию"""
@@ -660,14 +640,8 @@ class RaceSimulation:
                                 color='#f39c12', hovercolor='#d68910')
         self.btn_reset.on_clicked(self._reset_simulation)
 
-        # Кнопка перехода в редактор
-        btn_editor_ax = plt.axes([0.64, 0.02, 0.12, 0.06])
-        self.btn_editor = Button(btn_editor_ax, 'РЕДАКТОР',
-                                 color='#3498db', hovercolor='#2980b9')
-        self.btn_editor.on_clicked(self._open_editor)
-
     def _load_car_sprites(self):
-        """Загружает спрайты машинок с разными состояниями"""
+        """Загружает спрайты машинок"""
         try:
             # Ищем файлы с определенными паттернами названий
             sprite_files = {
@@ -773,13 +747,47 @@ class RaceSimulation:
         return tuple(int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
     def _get_car_sprite(self, steering_angle):
-        """Выбирает спрайт в зависимости от угла поворота колес"""
+        """Выбирает спрайт в зависимости от угла поворота колес с учетом вращения на 90 градусов"""
         if steering_angle < -10:
-            return 'left'
+            return 'right'  # Теперь это правый поворот
         elif steering_angle > 10:
-            return 'right'
+            return 'left'  # Теперь это левый поворот
         else:
             return 'straight'
+
+    def _rotate_image(self, image, angle):
+        """Вращает изображение на заданный угол с корректировкой начальной ориентации"""
+        try:
+            # Корректируем угол на 90 градусов для правильной начальной ориентации
+            corrected_angle = angle - 90
+
+            # Конвертируем numpy array в PIL Image
+            if image.dtype == np.float32 or image.dtype == np.float64:
+                img_array = (image * 255).astype(np.uint8)
+            else:
+                img_array = image
+
+            # Создаем PIL Image
+            if img_array.shape[2] == 4:  # RGBA
+                pil_img = Image.fromarray(img_array, 'RGBA')
+            else:  # RGB
+                pil_img = Image.fromarray(img_array, 'RGB')
+
+            # Вращаем изображение
+            rotated_img = pil_img.rotate(corrected_angle, expand=True, resample=Image.BICUBIC)
+
+            # Конвертируем обратно в numpy array
+            rotated_array = np.array(rotated_img)
+
+            # Нормализуем обратно в [0, 1] если нужно
+            if image.dtype == np.float32 or image.dtype == np.float64:
+                rotated_array = rotated_array.astype(np.float32) / 255.0
+
+            return rotated_array
+
+        except Exception as e:
+            print(f"Ошибка вращения изображения: {e}")
+            return image
 
     def _load_tracks_list(self):
         """Загружает список треков"""
@@ -857,15 +865,16 @@ class RaceSimulation:
         center_y = np.array(self.track_data['center_line'][1])
 
         self.car_objects = []
+        self.car_artists = []
 
-        # Создаем 3 машинки с разными характеристиками (уменьшил для производительности)
+        # Создаем 3 машинки с разными характеристиками
         for i in range(3):
             # Равномерное распределение по треку
             idx = int(len(center_x) * i / 3)
             pos = (center_x[idx], center_y[idx])
 
             # Угол направления вдоль трека
-            next_idx = (idx + 5) % len(center_x)  # Берем точку дальше для более плавного угла
+            next_idx = (idx + 5) % len(center_x)
             dx = center_x[next_idx] - center_x[idx]
             dy = center_y[next_idx] - center_y[idx]
             track_angle = math.degrees(math.atan2(dy, dx))
@@ -887,7 +896,7 @@ class RaceSimulation:
         """Обновляет физику движения машинки"""
         # Получаем текущую позицию на треке
         current_idx = int(car['progress']) % len(center_x)
-        look_ahead = min(10, len(center_x) // 10)  # Смотрим вперед на 10 точек
+        look_ahead = min(10, len(center_x) // 10)
         target_idx = (current_idx + look_ahead) % len(center_x)
 
         # Вектор направления к целевой точке
@@ -898,7 +907,7 @@ class RaceSimulation:
         # Вычисляем разницу углов для определения необходимого поворота
         angle_diff = (target_angle - car['body_angle'] + 180) % 360 - 180
 
-        # Устанавливаем целевой угол поворота колес в зависимости от разницы углов
+        # Устанавливаем целевой угол поворота колес
         car['target_wheel_angle'] = np.clip(angle_diff * 0.8,
                                             -car['max_steering_angle'],
                                             car['max_steering_angle'])
@@ -966,42 +975,58 @@ class RaceSimulation:
         self.fig.canvas.draw_idle()
 
     def _draw_cars(self):
-        """Отрисовывает машинки на треке"""
+        """Отрисовывает машинки на треке с правильным поворотом спрайтов"""
+        # Очищаем предыдущих художников
+        for artist in self.car_artists:
+            try:
+                artist.remove()
+            except:
+                pass
+        self.car_artists = []
+
         for i, car in enumerate(self.car_objects):
             try:
                 # Получаем спрайт для текущего состояния
-                sprite = self.car_sprites.get(car['sprite_state'],
-                                              self.car_sprites.get('straight'))
+                base_sprite = self.car_sprites.get(car['sprite_state'],
+                                                   self.car_sprites.get('straight'))
 
-                # Создание AnnotationBbox для машинки
-                imagebox = OffsetImage(sprite, zoom=0.2)
+                # Вращаем спрайт в соответствии с углом кузова машины
+                rotated_sprite = self._rotate_image(base_sprite, car['body_angle'])
+
+                # Создание AnnotationBbox для машинки с вращенным спрайтом
+                imagebox = OffsetImage(rotated_sprite, zoom=0.2)
+
                 ab = AnnotationBbox(imagebox, car['position'], frameon=False)
                 self.ax_main.add_artist(ab)
+                self.car_artists.append(ab)
 
-                # Дополнительно рисуем направление машинки
+                # Дополнительно рисуем направление машинки (для отладки)
                 length = 15
                 rad_angle = math.radians(car['body_angle'])
                 end_x = car['position'][0] + math.cos(rad_angle) * length
                 end_y = car['position'][1] + math.sin(rad_angle) * length
 
-                self.ax_main.plot([car['position'][0], end_x],
-                                  [car['position'][1], end_y],
-                                  color=car['color'], linewidth=2, zorder=5)
+                direction_line = self.ax_main.plot([car['position'][0], end_x],
+                                                   [car['position'][1], end_y],
+                                                   color=car['color'], linewidth=2, zorder=5, alpha=0.7)
+                self.car_artists.extend(direction_line)
 
             except Exception as e:
                 print(f"Ошибка отрисовки машинки: {e}")
                 # Резервная отрисовка кружком со стрелкой направления
-                self.ax_main.scatter(car['position'][0], car['position'][1],
-                                     c=car['color'], s=100, zorder=5)
+                scatter = self.ax_main.scatter(car['position'][0], car['position'][1],
+                                               c=car['color'], s=100, zorder=5)
+                self.car_artists.append(scatter)
 
                 length = 15
                 rad_angle = math.radians(car['body_angle'])
                 end_x = car['position'][0] + math.cos(rad_angle) * length
                 end_y = car['position'][1] + math.sin(rad_angle) * length
 
-                self.ax_main.arrow(car['position'][0], car['position'][1],
-                                   end_x - car['position'][0], end_y - car['position'][1],
-                                   head_width=5, head_length=5, fc=car['color'], ec=car['color'])
+                arrow = self.ax_main.arrow(car['position'][0], car['position'][1],
+                                           end_x - car['position'][0], end_y - car['position'][1],
+                                           head_width=5, head_length=5, fc=car['color'], ec=car['color'])
+                self.car_artists.append(arrow)
 
     def _start_simulation(self, event=None):
         """Запускает симуляцию"""
@@ -1026,13 +1051,6 @@ class RaceSimulation:
         if self.track_data:
             self._initialize_cars()
         self._update_display()
-
-    def _open_editor(self, event=None):
-        """Переходит в редактор треков"""
-        print("Переход в редактор...")
-        plt.close(self.fig)
-        editor = TrackEditor(self.tracks_folder, self.cars_folder)
-        editor.run()
 
     def _run_simulation_loop(self):
         """Основной цикл симуляции с улучшенной физикой"""
