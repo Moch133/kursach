@@ -567,16 +567,34 @@ class TrackSelector:
 class CarGame:
     def __init__(self, screen):
         self.screen = screen
+        
+        # Позиция и физика машины
         self.car_x = SCREEN_WIDTH // 2
         self.car_y = SCREEN_HEIGHT // 2
-        self.car_angle = 0
-        self.car_speed = 0
-        self.wheel_angle = 0
+        self.car_angle = 0  # угол направления машины
+        self.velocity_x = 0  # горизонтальная скорость
+        self.velocity_y = 0  # вертикальная скорость
+        self.angular_velocity = 0  # угловая скорость вращения
+        
+        # Управление
+        self.wheel_angle = 0  # угол поворота колес
+        self.engine_power = 0  # мощность двигателя
+        
+        # Параметры физики
         self.max_speed = 8
-        self.acceleration = 0.2
-        self.deceleration = 0.1
+        self.acceleration = 0.5
+        self.brake_power = 0.3
         self.steering_speed = 3
         self.max_wheel_angle = 30
+        
+        # Физика заноса
+        self.friction = 0.95  # общее трение
+        self.traction_fast = 0.05  # сцепление на высокой скорости
+        self.traction_slow = 0.01  # сцепление на низкой скорости
+        self.drift_factor = 0.05  # фактор заноса
+        self.slide_factor = 0.98  # фактор скольжения
+        self.angular_friction = 0.93  # трение вращения
+        
         self.handbrake_on = False
         self.selected_track = None
         self.track_data = None
@@ -682,38 +700,88 @@ class CarGame:
                 if self.wheel_angle > 0:
                     self.wheel_angle = 0
 
-        # Управление движением
+        # Управление двигателем
+        self.engine_power = 0
         if keys[pygame.K_w]:
-            self.car_speed += self.acceleration
+            self.engine_power = self.acceleration
         elif keys[pygame.K_s]:
-            self.car_speed -= self.acceleration
-        elif abs(self.car_speed) > 0:
-            # Плавное замедление
-            if self.car_speed > 0:
-                self.car_speed -= self.deceleration
-                if self.car_speed < 0:
-                    self.car_speed = 0
-            else:
-                self.car_speed += self.deceleration
-                if self.car_speed > 0:
-                    self.car_speed = 0
+            self.engine_power = -self.acceleration
 
         # Ручной тормоз
         self.handbrake_on = keys[pygame.K_SPACE]
 
-        # Ограничение скорости
-        self.car_speed = max(-self.max_speed / 2, min(self.max_speed, self.car_speed))
+        # Расчет ускорения
+        angle_rad = math.radians(self.car_angle)
+        
+        # Ускорение вперед/назад
+        if self.engine_power != 0:
+            self.velocity_x += self.engine_power * math.cos(angle_rad)
+            self.velocity_y -= self.engine_power * math.sin(angle_rad)
+        else:
+            # Замедление при отпускании педали газа
+            self.velocity_x *= self.friction
+            self.velocity_y *= self.friction
 
-        # Поворот машины только при движении
-        if abs(self.car_speed) > 0.1 and abs(self.wheel_angle) > 1:
-            turn_factor = self.car_speed * math.tan(math.radians(self.wheel_angle)) / 50
-            self.car_angle += math.degrees(turn_factor)
-            self.car_angle %= 360
+        # Торможение
+        if keys[pygame.K_s] and not keys[pygame.K_w]:
+            speed = math.hypot(self.velocity_x, self.velocity_y)
+            if speed > 0.1:
+                brake_x = -self.velocity_x / speed * self.brake_power
+                brake_y = -self.velocity_y / speed * self.brake_power
+                self.velocity_x += brake_x
+                self.velocity_y += brake_y
+
+        # Физика заноса
+        speed = math.hypot(self.velocity_x, self.velocity_y)
+        
+        # Определяем направление движения относительно ориентации машины
+        # Скалярное произведение вектора скорости и вектора направления машины
+        forward_vector = (math.cos(angle_rad), -math.sin(angle_rad))
+        dot_product = (self.velocity_x * forward_vector[0] + 
+                      self.velocity_y * forward_vector[1])
+        
+        # Если dot_product отрицательный - движемся назад
+        is_moving_backward = dot_product < 0
+        
+        # Ручной тормоз - усиливает занос
+        if self.handbrake_on and speed > 1:
+            current_traction = self.traction_fast
+            # Увеличивает угловую скорость для заноса
+            self.angular_velocity += self.wheel_angle * self.drift_factor * 0.07
+            # Снижает скорость при заносе
+            self.velocity_x *= self.slide_factor
+            self.velocity_y *= self.slide_factor
+        else:
+            # Нормальное сцепление зависит от скорости
+            current_traction = self.traction_slow if speed < 2 else self.traction_fast
+
+        # Поворот машины с учетом заноса и направления движения
+        if abs(self.wheel_angle) > 1 and speed > 0.5:
+            turn_force = math.tan(math.radians(self.wheel_angle)) * current_traction
+            
+            # ИНВЕРТИРУЕМ поворот при движении назад
+            if is_moving_backward:
+                turn_force = -turn_force
+                
+            self.angular_velocity += turn_force * speed
+
+        # Применяем угловую скорость
+        self.car_angle += self.angular_velocity
+        self.car_angle %= 360
+
+        # Затухание угловой скорости (трение)
+        self.angular_velocity *= self.angular_friction
 
         # Обновление позиции
-        angle_rad = math.radians(self.car_angle)
-        self.car_x += self.car_speed * math.cos(angle_rad)
-        self.car_y -= self.car_speed * math.sin(angle_rad)
+        self.car_x += self.velocity_x
+        self.car_y += self.velocity_y
+
+        # Ограничение скорости
+        speed = math.hypot(self.velocity_x, self.velocity_y)
+        if speed > self.max_speed:
+            scale = self.max_speed / speed
+            self.velocity_x *= scale
+            self.velocity_y *= scale
 
         # Ограничение движения в пределах экрана
         self.car_x = max(20, min(SCREEN_WIDTH - 20, self.car_x))
@@ -740,7 +808,7 @@ class CarGame:
         self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 20))
 
         # Информация об управлении
-        controls = self.small_font.render("W/S - газ/тормоз, A/D - поворот, SPACE - ручной тормоз", True, TEXT_COLOR)
+        controls = self.small_font.render("W/S - газ/тормоз, A/D - поворот, SPACE - ручной тормоз (занос)", True, TEXT_COLOR)
         self.screen.blit(controls, (SCREEN_WIDTH // 2 - controls.get_width() // 2, 50))
 
         # Рисуем загруженную трассу или стандартную дорогу
@@ -756,10 +824,21 @@ class CarGame:
         self.screen.blit(rotated_car, car_rect)
 
         # Информация о машинке
+        speed = math.hypot(self.velocity_x, self.velocity_y)
+        
+        # Определяем направление движения
+        angle_rad = math.radians(self.car_angle)
+        forward_vector = (math.cos(angle_rad), -math.sin(angle_rad))
+        dot_product = (self.velocity_x * forward_vector[0] + 
+                      self.velocity_y * forward_vector[1])
+        direction = "ВПЕРЕД" if dot_product >= 0 else "НАЗАД"
+        
         info_text = [
-            f"Скорость: {abs(self.car_speed):.1f}",
+            f"Скорость: {speed:.1f}",
+            f"Направление: {direction}",
             f"Угол: {self.car_angle:.1f}°",
             f"Колеса: {self.wheel_angle:.1f}°",
+            f"Занос: {abs(self.angular_velocity):.2f}",
             f"Ручной тормоз: {'ВКЛ' if self.handbrake_on else 'выкл'}"
         ]
 
@@ -857,11 +936,20 @@ class CarGame:
             pygame.draw.rect(self.screen, WHITE, (120 + i, SCREEN_HEIGHT // 2 - 2, 20, 4))
 
     def get_car_sprite(self):
-        if self.handbrake_on and abs(self.car_speed) > 1:
+        speed = math.hypot(self.velocity_x, self.velocity_y)
+        
+        # Определяем направление движения
+        angle_rad = math.radians(self.car_angle)
+        forward_vector = (math.cos(angle_rad), -math.sin(angle_rad))
+        dot_product = (self.velocity_x * forward_vector[0] + 
+                      self.velocity_y * forward_vector[1])
+        is_moving_backward = dot_product < 0
+        
+        if is_moving_backward and speed > 0.5:
             return self.car_sprites['reverse']
-        elif self.wheel_angle < -5:
+        elif self.wheel_angle < -5 and speed > 0.5:
             return self.car_sprites['right']
-        elif self.wheel_angle > 5:
+        elif self.wheel_angle > 5 and speed > 0.5:
             return self.car_sprites['left']
         else:
             return self.car_sprites['straight']
