@@ -66,13 +66,17 @@ class TrackEditor:
         self.screen = screen
         self.points = []
         self.track_width = 40
+        self.min_width = 20
+        self.max_width = 200
         self.is_closed = False
         self.dragging_index = None
         self.drag_start = None
         self.current_track = None
+        self.start_line = None
 
         # Создаем папку для сохранения треков
-        self.tracks_folder = "saved_tracks"
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.tracks_folder = os.path.join(script_dir, "saved_tracks")
         if not os.path.exists(self.tracks_folder):
             os.makedirs(self.tracks_folder)
 
@@ -82,12 +86,22 @@ class TrackEditor:
             Button(190, 720, 120, 50, "СОХРАНИТЬ", GREEN),
             Button(330, 720, 120, 50, "ЗАГРУЗИТЬ", BLUE),
             Button(470, 720, 120, 50, "УДАЛИТЬ", (255, 150, 50)),
-            Button(610, 720, 120, 50, "НАЗАД", SECONDARY)
+            Button(610, 720, 120, 50, "НАЗАД", SECONDARY),
+            Button(750, 720, 50, 50, "+", GREEN),
+            Button(810, 720, 50, 50, "-", RED)
         ]
 
         # Шрифты
         self.font = pygame.font.SysFont('Arial', 24)
         self.small_font = pygame.font.SysFont('Arial', 16)
+        
+        # Сообщение для пользователя
+        self.message = ""
+        self.message_timer = 0
+
+    def show_message(self, text, duration=120):
+        self.message = text
+        self.message_timer = duration
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -95,7 +109,7 @@ class TrackEditor:
                 return "quit"
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:  # Левая кнопка мыши
+                if event.button == 1:
                     mouse_pos = pygame.mouse.get_pos()
 
                     # Проверка кликов по кнопкам
@@ -111,6 +125,10 @@ class TrackEditor:
                                 self.delete_track()
                             elif i == 4:  # Назад
                                 return "menu"
+                            elif i == 5:  # Увеличить ширину
+                                self.increase_width()
+                            elif i == 6:  # Уменьшить ширину
+                                self.decrease_width()
 
                     # Добавление/редактирование точек трека
                     if 200 <= mouse_pos[0] <= 1000 and 100 <= mouse_pos[1] <= 700:
@@ -131,7 +149,6 @@ class TrackEditor:
                 # Перетаскивание точек
                 if self.dragging_index is not None and 200 <= mouse_pos[0] <= 1000 and 100 <= mouse_pos[1] <= 700:
                     self.points[self.dragging_index] = (mouse_pos[0] - 400, 400 - mouse_pos[1])
-                    # Если трек замкнут и перемещаем первую/последнюю точку
                     if self.is_closed and self.dragging_index in [0, len(self.points) - 1]:
                         self.points[0] = self.points[-1] = (mouse_pos[0] - 400, 400 - mouse_pos[1])
                     self.rebuild_track()
@@ -139,12 +156,32 @@ class TrackEditor:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return "menu"
+                elif event.key == pygame.K_EQUALS or event.key == pygame.K_PLUS:
+                    self.increase_width()
+                elif event.key == pygame.K_MINUS:
+                    self.decrease_width()
+
+        # Обновление таймера сообщения
+        if self.message_timer > 0:
+            self.message_timer -= 1
+            if self.message_timer == 0:
+                self.message = ""
 
         return "editor"
 
+    def increase_width(self):
+        if self.track_width < self.max_width:
+            self.track_width += 5
+            self.rebuild_track()
+            self.show_message(f"Ширина трека: {self.track_width}", 60)
+
+    def decrease_width(self):
+        if self.track_width > self.min_width:
+            self.track_width -= 5
+            self.rebuild_track()
+            self.show_message(f"Ширина трека: {self.track_width}", 60)
+
     def handle_track_click(self, mouse_pos):
-        """Обработка кликов для добавления и редактирования точек трека"""
-        # Преобразование координат (центр в 0,0)
         x = mouse_pos[0] - 400
         y = 400 - mouse_pos[1]
         new_point = (x, y)
@@ -153,10 +190,9 @@ class TrackEditor:
         for i in range(len(self.points)):
             dist = math.hypot(x - self.points[i][0], y - self.points[i][1])
             if dist < 15:
-                # Если кликнули на первую точку и трек еще не замкнут - замыкаем трек
                 if i == 0 and not self.is_closed and len(self.points) >= 3:
                     self.is_closed = True
-                    print("Трек замкнут! Нажата первая точка.")
+                    self.show_message("Трек замкнут! Теперь его можно сохранить.", 180)
                     self.rebuild_track()
                     return
                 self.dragging_index = i
@@ -165,24 +201,27 @@ class TrackEditor:
 
         # Если трек уже замкнут, не добавляем новые точки
         if self.is_closed:
+            self.show_message("Трек уже замкнут. Очистите для создания нового.", 120)
             return
 
         # Проверка минимального расстояния для новой точки
         if self.points:
             min_dist = min(math.hypot(new_point[0] - p[0], new_point[1] - p[1]) for p in self.points)
             if min_dist < 20:
+                self.show_message("Слишком близко к существующей точке!", 90)
                 return
 
         # Добавляем новую точку
         self.points.append(new_point)
+        self.show_message(f"Точка добавлена. Всего точек: {len(self.points)}", 90)
 
         # Автоматическое замыкание при приближении к первой точке
         if len(self.points) >= 3 and not self.is_closed:
             first = self.points[0]
             if math.hypot(new_point[0] - first[0], new_point[1] - first[1]) < 30:
-                self.points.pop()  # Удаляем последнюю точку
+                self.points.pop()
                 self.is_closed = True
-                print("Трек замкнут! Первая и последняя точки объединены.")
+                self.show_message("Трек замкнут! Теперь его можно сохранить.", 180)
 
         self.rebuild_track()
 
@@ -195,52 +234,116 @@ class TrackEditor:
             'width': self.track_width,
             'closed': self.is_closed
         }
+        
+        # Создаем стартовую линию
+        self.create_start_line()
+
+    def create_start_line(self):
+        """Создает стартовую линию с направлением для спавна машинки"""
+        if len(self.points) < 2 or not self.is_closed:
+            self.start_line = None
+            return
+            
+        # Направление движения - от первой точки ко второй
+        start_point = self.points[0]
+        next_point = self.points[1]
+        
+        # Вектор направления движения
+        dx = next_point[0] - start_point[0]
+        dy = next_point[1] - start_point[1]
+        
+        # Нормализуем вектор
+        length = math.hypot(dx, dy)
+        if length == 0:
+            self.start_line = None
+            return
+            
+        dx /= length
+        dy /= length
+        
+        # Перпендикулярный вектор для стартовой линии
+        perp_dx = -dy
+        perp_dy = dx
+        
+        # Создаем стартовую линию (перпендикулярно направлению движения)
+        line_length = self.track_width * 0.8
+        start_x = start_point[0] - perp_dx * line_length / 2
+        start_y = start_point[1] - perp_dy * line_length / 2
+        end_x = start_point[0] + perp_dx * line_length / 2
+        end_y = start_point[1] + perp_dy * line_length / 2
+        
+        # Вычисляем угол для ориентации машинки
+        start_angle = math.degrees(math.atan2(-dy, dx))
+        
+        self.start_line = {
+            'start': (start_x, start_y),
+            'end': (end_x, end_y),
+            'direction': (dx, dy),
+            'angle': start_angle,
+            'position': start_point  # Позиция для спавна машинки
+        }
+        
+        # Добавляем стартовую линию в данные трека
+        if self.current_track:
+            self.current_track['start_line'] = self.start_line
 
     def clear_track(self):
         self.points = []
         self.is_closed = False
         self.current_track = None
+        self.start_line = None
+        self.show_message("Трек очищен", 90)
 
     def save_track(self):
         if not self.current_track or not self.is_closed:
+            self.show_message("Ошибка: трек должен быть замкнут для сохранения!", 120)
             return
 
-        # Создаем имя для трека
-        name = "track_" + str(len([f for f in os.listdir(self.tracks_folder) if f.endswith('.json')]) + 1)
-
+        track_count = len([f for f in os.listdir(self.tracks_folder) if f.endswith('.json')])
+        name = f"track_{track_count + 1}"
         filename = os.path.join(self.tracks_folder, f"{name}.json")
-        with open(filename, 'w') as f:
-            json.dump(self.current_track, f, indent=2)
-
-        print(f"Трек сохранен как {filename}")
+        
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(self.current_track, f, indent=2, ensure_ascii=False)
+            self.show_message(f"Трек сохранен как {name}.json", 180)
+        except Exception as e:
+            self.show_message(f"Ошибка сохранения: {str(e)}", 180)
 
     def load_track(self):
         tracks = [f for f in os.listdir(self.tracks_folder) if f.endswith('.json')]
         if not tracks:
-            print("Нет сохраненных треков")
+            self.show_message("Нет сохраненных треков", 120)
             return
 
-        # Загружаем первый найденный трек
         filename = os.path.join(self.tracks_folder, tracks[0])
-        with open(filename, 'r') as f:
-            data = json.load(f)
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                data = json.load(f)
 
-        self.points = [tuple(p) for p in data['points']]
-        self.track_width = data['width']
-        self.is_closed = data.get('closed', True)
-        self.current_track = data
-        self.rebuild_track()
-        print(f"Трек {tracks[0]} загружен")
+            self.points = [tuple(p) for p in data['points']]
+            self.track_width = data['width']
+            self.is_closed = data.get('closed', True)
+            self.current_track = data
+            self.start_line = data.get('start_line')
+            self.rebuild_track()
+            self.show_message(f"Трек {tracks[0]} загружен", 180)
+        except Exception as e:
+            self.show_message(f"Ошибка загрузки: {str(e)}", 180)
 
     def delete_track(self):
         tracks = [f for f in os.listdir(self.tracks_folder) if f.endswith('.json')]
         if tracks:
             filename = os.path.join(self.tracks_folder, tracks[0])
-            os.remove(filename)
-            print(f"Трек {tracks[0]} удален")
+            try:
+                os.remove(filename)
+                self.show_message(f"Трек {tracks[0]} удален", 180)
+            except Exception as e:
+                self.show_message(f"Ошибка удаления: {str(e)}", 180)
+        else:
+            self.show_message("Нет треков для удаления", 120)
 
     def calculate_smooth_track(self, points):
-        """Создает сглаженную трассу с закругленными углами"""
         if len(points) < 2:
             return [], []
 
@@ -249,12 +352,10 @@ class TrackEditor:
 
         for i in range(len(points)):
             if self.is_closed:
-                # Для замкнутого трека - все точки соединены по кругу
                 p_prev = points[i - 1]
                 p_curr = points[i]
                 p_next = points[(i + 1) % len(points)]
             else:
-                # Для незамкнутого трека
                 if i == 0:
                     p_prev = points[0]
                     p_curr = points[0]
@@ -284,14 +385,13 @@ class TrackEditor:
                 norm1 = (-dir1[1], dir1[0])
                 norm2 = (-dir2[1], dir2[0])
 
-                # Усредненная нормаль для плавного перехода
+                # Усредненная нормаль
                 avg_norm = ((norm1[0] + norm2[0]) / 2, (norm1[1] + norm2[1]) / 2)
                 avg_len = math.hypot(avg_norm[0], avg_norm[1])
 
                 if avg_len > 0:
                     avg_norm = (avg_norm[0] / avg_len, avg_norm[1] / avg_len)
 
-                    # Внутренняя и внешняя точки
                     inner_point = (p_curr[0] - avg_norm[0] * self.track_width / 2,
                                    p_curr[1] - avg_norm[1] * self.track_width / 2)
                     outer_point = (p_curr[0] + avg_norm[0] * self.track_width / 2,
@@ -300,7 +400,6 @@ class TrackEditor:
                     smooth_inner.append(inner_point)
                     smooth_outer.append(outer_point)
             else:
-                # Если векторы нулевые, используем простой расчет
                 if i > 0:
                     dir_vec = (p_curr[0] - p_prev[0], p_curr[1] - p_prev[1])
                 else:
@@ -322,13 +421,11 @@ class TrackEditor:
         return smooth_inner, smooth_outer
 
     def create_track_boundaries(self, points):
-        """Создает границы трека с закругленными углами"""
         if len(points) < 2:
             return None, None
 
         inner_points, outer_points = self.calculate_smooth_track(points)
 
-        # Для замкнутого трека замыкаем границы
         if self.is_closed and inner_points and outer_points:
             if len(inner_points) >= 3:
                 inner_points.append(inner_points[0])
@@ -354,8 +451,7 @@ class TrackEditor:
                 "Добавляйте точки щелчками мыши. Замкните трек, кликнув на первую точку.", True, TEXT_COLOR)
         else:
             instruction = self.small_font.render(
-                "Трек замкнут. Редактируйте существующие точки перетаскиванием. Очистите для создания нового.", True,
-                YELLOW)
+                "Трек замкнут. Редактируйте существующие точки перетаскиванием. Очистите для создания нового.", True, YELLOW)
         self.screen.blit(instruction, (SCREEN_WIDTH // 2 - instruction.get_width() // 2, 50))
 
         # Рисуем область трека
@@ -371,9 +467,8 @@ class TrackEditor:
         pygame.draw.line(self.screen, GRID_COLOR, (600, 100), (600, 700), 2)
         pygame.draw.line(self.screen, GRID_COLOR, (200, 400), (1000, 400), 2)
 
-        # Рисуем трек (сначала фон трека)
+        # Рисуем трек
         if self.points:
-            # Рисуем линии между точками
             screen_points = [(p[0] + 400, 400 - p[1]) for p in self.points]
             if len(screen_points) > 1:
                 if self.is_closed:
@@ -386,7 +481,6 @@ class TrackEditor:
             inner_points, outer_points = self.create_track_boundaries(self.points)
 
             if inner_points and outer_points:
-                # Преобразуем координаты для отображения
                 inner_screen = [(p[0] + 400, 400 - p[1]) for p in inner_points]
                 outer_screen = [(p[0] + 400, 400 - p[1]) for p in outer_points]
 
@@ -408,7 +502,41 @@ class TrackEditor:
                     if len(outer_screen) >= 2:
                         pygame.draw.lines(self.screen, ACCENT, False, outer_screen, 3)
 
-        # Рисуем точки поверх трассы
+        # Рисуем стартовую линию
+        if self.start_line and self.is_closed:
+            start_screen = (self.start_line['start'][0] + 400, 400 - self.start_line['start'][1])
+            end_screen = (self.start_line['end'][0] + 400, 400 - self.start_line['end'][1])
+            
+            # Рисуем линию
+            pygame.draw.line(self.screen, WHITE, start_screen, end_screen, 4)
+            
+            # Рисуем стрелку направления
+            mid_x = (start_screen[0] + end_screen[0]) / 2
+            mid_y = (start_screen[1] + end_screen[1]) / 2
+            
+            # Направление стрелки
+            dir_x, dir_y = self.start_line['direction']
+            arrow_length = 25
+            arrow_end_x = mid_x + dir_x * arrow_length
+            arrow_end_y = mid_y - dir_y * arrow_length  # Инвертируем Y для экранных координат
+            
+            pygame.draw.line(self.screen, GREEN, (mid_x, mid_y), (arrow_end_x, arrow_end_y), 4)
+            
+            # Боковые стороны стрелки
+            arrow_side_length = 12
+            perp_dx = -dir_y * 0.7
+            perp_dy = dir_x * 0.7
+            
+            left_arrow_x = arrow_end_x - dir_x * arrow_side_length + perp_dx * arrow_side_length
+            left_arrow_y = arrow_end_y + dir_y * arrow_side_length + perp_dy * arrow_side_length
+            
+            right_arrow_x = arrow_end_x - dir_x * arrow_side_length - perp_dx * arrow_side_length
+            right_arrow_y = arrow_end_y + dir_y * arrow_side_length - perp_dy * arrow_side_length
+            
+            pygame.draw.line(self.screen, GREEN, (arrow_end_x, arrow_end_y), (left_arrow_x, left_arrow_y), 3)
+            pygame.draw.line(self.screen, GREEN, (arrow_end_x, arrow_end_y), (right_arrow_x, right_arrow_y), 3)
+
+        # Рисуем точки
         if self.points:
             screen_points = [(p[0] + 400, 400 - p[1]) for p in self.points]
 
@@ -423,11 +551,9 @@ class TrackEditor:
                     else:
                         color = BLUE
 
-                # Рисуем точку
                 pygame.draw.circle(self.screen, color, (int(point[0]), int(point[1])), 10)
                 pygame.draw.circle(self.screen, WHITE, (int(point[0]), int(point[1])), 10, 2)
 
-                # Номера точек для замкнутого трека
                 if self.is_closed:
                     number_text = self.small_font.render(str(i + 1), True, WHITE)
                     text_rect = number_text.get_rect(center=(int(point[0]), int(point[1])))
@@ -444,16 +570,29 @@ class TrackEditor:
         status_text = self.small_font.render(status, True, status_color)
         self.screen.blit(status_text, (1020, 120))
 
+        # Информация о ширине трека
+        width_text = self.small_font.render(f"Ширина трека: {self.track_width}", True, TEXT_COLOR)
+        self.screen.blit(width_text, (1020, 150))
+        
+        # Подсказка по управлению шириной
+        width_hint = self.small_font.render("Используйте +/- или кнопки для изменения ширины", True, TEXT_COLOR)
+        self.screen.blit(width_hint, (1020, 175))
+
         # Подсказка
         if len(self.points) >= 3 and not self.is_closed:
             hint = self.small_font.render("Нажмите на первую точку (зеленую), чтобы замкнуть трек", True, GREEN)
-            self.screen.blit(hint, (1020, 150))
+            self.screen.blit(hint, (1020, 200))
         elif self.is_closed:
             hint = self.small_font.render("Трек замкнут. Перетаскивайте точки для редактирования", True, YELLOW)
-            self.screen.blit(hint, (1020, 150))
+            self.screen.blit(hint, (1020, 200))
+            
+        # Информация о стартовой линии
+        if self.is_closed:
+            start_info = self.small_font.render("Стартовая линия создана автоматически", True, GREEN)
+            self.screen.blit(start_info, (1020, 225))
 
         # Легенда цветов точек
-        legend_y = 180
+        legend_y = 250
         legend_text = self.small_font.render("Цвета точек:", True, TEXT_COLOR)
         self.screen.blit(legend_text, (1020, legend_y))
 
@@ -475,6 +614,17 @@ class TrackEditor:
             legend_item = self.small_font.render(text, True, TEXT_COLOR)
             self.screen.blit(legend_item, (1045, y_pos))
 
+        # Сообщение для пользователя
+        if self.message:
+            msg_color = YELLOW if "Ошибка" not in self.message else RED
+            msg_text = self.small_font.render(self.message, True, msg_color)
+            self.screen.blit(msg_text, (1020, 320))
+
+        # Информация о сохраненных треках
+        tracks = [f for f in os.listdir(self.tracks_folder) if f.endswith('.json')]
+        tracks_info = self.small_font.render(f"Сохранено треков: {len(tracks)}", True, TEXT_COLOR)
+        self.screen.blit(tracks_info, (1020, 350))
+
         # Рисуем кнопки
         for button in self.buttons:
             button.draw(self.screen)
@@ -483,27 +633,29 @@ class TrackEditor:
 class TrackSelector:
     def __init__(self, screen):
         self.screen = screen
-        self.tracks_folder = "saved_tracks"
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.tracks_folder = os.path.join(script_dir, "saved_tracks")
+        if not os.path.exists(self.tracks_folder):
+            os.makedirs(self.tracks_folder)
+            
         self.selected_track = None
         self.track_buttons = []
         self.back_button = Button(SCREEN_WIDTH // 2 - 75, 700, 150, 50, "НАЗАД", SECONDARY)
 
-        # Шрифты
         self.font = pygame.font.SysFont('Arial', 36)
         self.small_font = pygame.font.SysFont('Arial', 20)
 
         self.load_tracks()
 
     def load_tracks(self):
-        """Загружает список доступных треков"""
         self.track_buttons = []
 
         if not os.path.exists(self.tracks_folder):
             os.makedirs(self.tracks_folder)
 
         tracks = [f for f in os.listdir(self.tracks_folder) if f.endswith('.json')]
+        tracks.sort()
 
-        # Создаем кнопки для каждого трека
         for i, track in enumerate(tracks):
             track_name = track.replace('.json', '')
             y_pos = 200 + i * 70
@@ -521,17 +673,18 @@ class TrackSelector:
                 if event.button == 1:
                     mouse_pos = pygame.mouse.get_pos()
 
-                    # Проверка кликов по кнопкам треков
                     for button in self.track_buttons:
                         if button.is_clicked(mouse_pos, True):
                             self.selected_track = button.track_file
                             return "game"
 
-                    # Проверка клика по кнопке "Назад"
                     if self.back_button.is_clicked(mouse_pos, True):
                         return "menu"
 
-        # Обновление состояния кнопок
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return "menu"
+
         mouse_pos = pygame.mouse.get_pos()
         for button in self.track_buttons:
             button.check_hover(mouse_pos)
@@ -542,25 +695,20 @@ class TrackSelector:
     def draw(self):
         self.screen.fill(BACKGROUND)
 
-        # Заголовок
         title = self.font.render("ВЫБЕРИТЕ ТРАССУ", True, TEXT_COLOR)
         self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 100))
 
-        # Информация о количестве треков
         track_count = len(self.track_buttons)
         if track_count == 0:
-            info_text = self.small_font.render("Нет сохраненных треков. Сначала создайте трек в редакторе.", True,
-                                               YELLOW)
+            info_text = self.small_font.render("Нет сохраненных треков. Сначала создайте трек в редакторе.", True, YELLOW)
             self.screen.blit(info_text, (SCREEN_WIDTH // 2 - info_text.get_width() // 2, 160))
         else:
             info_text = self.small_font.render(f"Доступно треков: {track_count}", True, TEXT_COLOR)
             self.screen.blit(info_text, (SCREEN_WIDTH // 2 - info_text.get_width() // 2, 160))
 
-        # Рисуем кнопки треков
         for button in self.track_buttons:
             button.draw(self.screen)
 
-        # Рисуем кнопку "Назад"
         self.back_button.draw(self.screen)
 
 
@@ -568,19 +716,19 @@ class CarGame:
     def __init__(self, screen):
         self.screen = screen
         
-        # Позиция и физика машины
+        # Параметры машинки
         self.car_x = SCREEN_WIDTH // 2
         self.car_y = SCREEN_HEIGHT // 2
-        self.car_angle = 0  # угол направления машины
-        self.velocity_x = 0  # горизонтальная скорость
-        self.velocity_y = 0  # вертикальная скорость
-        self.angular_velocity = 0  # угловая скорость вращения
+        self.car_angle = 0
+        self.velocity_x = 0
+        self.velocity_y = 0
+        self.angular_velocity = 0
         
         # Управление
-        self.wheel_angle = 0  # угол поворота колес
-        self.engine_power = 0  # мощность двигателя
+        self.wheel_angle = 0
+        self.engine_power = 0
         
-        # Параметры физики
+        # Физика
         self.max_speed = 8
         self.acceleration = 0.5
         self.brake_power = 0.3
@@ -588,16 +736,18 @@ class CarGame:
         self.max_wheel_angle = 30
         
         # Физика заноса
-        self.friction = 0.95  # общее трение
-        self.traction_fast = 0.05  # сцепление на высокой скорости
-        self.traction_slow = 0.01  # сцепление на низкой скорости
-        self.drift_factor = 0.05  # фактор заноса
-        self.slide_factor = 0.98  # фактор скольжения
-        self.angular_friction = 0.93  # трение вращения
+        self.friction = 0.95
+        self.traction_fast = 0.05
+        self.traction_slow = 0.01
+        self.drift_factor = 0.05
+        self.slide_factor = 0.98
+        self.angular_friction = 0.93
         
         self.handbrake_on = False
         self.selected_track = None
         self.track_data = None
+        self.start_position = None
+        self.start_angle = 0
 
         # Загружаем спрайты машинки
         self.car_sprites = {}
@@ -613,28 +763,59 @@ class CarGame:
         self.small_font = pygame.font.SysFont('Arial', 16)
 
     def set_track(self, track_file):
-        """Устанавливает выбранную трассу"""
         self.selected_track = track_file
         self.load_track()
+        self.spawn_car()
 
     def load_track(self):
-        """Загружает данные трека"""
         if not self.selected_track:
             return
 
-        tracks_folder = "saved_tracks"
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        tracks_folder = os.path.join(script_dir, "saved_tracks")
         filename = os.path.join(tracks_folder, self.selected_track)
 
         try:
-            with open(filename, 'r') as f:
+            with open(filename, 'r', encoding='utf-8') as f:
                 self.track_data = json.load(f)
-            print(f"Трек '{self.selected_track}' загружен успешно!")
+            
+            # Устанавливаем позицию спавна из стартовой линии
+            if self.track_data and 'start_line' in self.track_data:
+                start_line = self.track_data['start_line']
+                
+                # Позиция спавна - середина стартовой линии
+                mid_x = (start_line['start'][0] + start_line['end'][0]) / 2
+                mid_y = (start_line['start'][1] + start_line['end'][1]) / 2
+                
+                # Преобразуем в экранные координаты
+                self.start_position = (mid_x + 400, 400 - mid_y)
+                
+                # Угол спавна - направление зеленой стрелки
+                self.start_angle = start_line['angle']
         except Exception as e:
             print(f"Ошибка загрузки трека: {e}")
             self.track_data = None
 
+    def spawn_car(self):
+        """Спавнит машинку на стартовой линии по направлению зеленой стрелки"""
+        if self.start_position:
+            self.car_x, self.car_y = self.start_position
+            self.car_angle = self.start_angle
+            
+            # Сбрасываем физику
+            self.velocity_x = 0
+            self.velocity_y = 0
+            self.angular_velocity = 0
+            self.wheel_angle = 0
+            self.engine_power = 0
+            self.handbrake_on = False
+        else:
+            # Если нет стартовой позиции, спавним по центру
+            self.car_x = SCREEN_WIDTH // 2
+            self.car_y = SCREEN_HEIGHT // 2
+            self.car_angle = 0
+
     def load_car_sprites(self):
-        # Создаем простые спрайты
         for state in ['straight', 'left', 'right', 'reverse']:
             sprite = pygame.Surface((40, 20), pygame.SRCALPHA)
 
@@ -667,6 +848,8 @@ class CarGame:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     return "menu"
+                elif event.key == pygame.K_r:  # Респавн машинки
+                    self.spawn_car()
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
@@ -735,7 +918,6 @@ class CarGame:
         speed = math.hypot(self.velocity_x, self.velocity_y)
         
         # Определяем направление движения относительно ориентации машины
-        # Скалярное произведение вектора скорости и вектора направления машины
         forward_vector = (math.cos(angle_rad), -math.sin(angle_rad))
         dot_product = (self.velocity_x * forward_vector[0] + 
                       self.velocity_y * forward_vector[1])
@@ -746,20 +928,17 @@ class CarGame:
         # Ручной тормоз - усиливает занос
         if self.handbrake_on and speed > 1:
             current_traction = self.traction_fast
-            # Увеличивает угловую скорость для заноса
             self.angular_velocity += self.wheel_angle * self.drift_factor * 0.07
-            # Снижает скорость при заносе
             self.velocity_x *= self.slide_factor
             self.velocity_y *= self.slide_factor
         else:
-            # Нормальное сцепление зависит от скорости
             current_traction = self.traction_slow if speed < 2 else self.traction_fast
 
         # Поворот машины с учетом заноса и направления движения
         if abs(self.wheel_angle) > 1 and speed > 0.5:
             turn_force = math.tan(math.radians(self.wheel_angle)) * current_traction
             
-            # ИНВЕРТИРУЕМ поворот при движении назад
+            # Инвертируем поворот при движении назад
             if is_moving_backward:
                 turn_force = -turn_force
                 
@@ -769,7 +948,7 @@ class CarGame:
         self.car_angle += self.angular_velocity
         self.car_angle %= 360
 
-        # Затухание угловой скорости (трение)
+        # Затухание угловой скорости
         self.angular_velocity *= self.angular_friction
 
         # Обновление позиции
@@ -782,10 +961,6 @@ class CarGame:
             scale = self.max_speed / speed
             self.velocity_x *= scale
             self.velocity_y *= scale
-
-        # Ограничение движения в пределах экрана
-        self.car_x = max(20, min(SCREEN_WIDTH - 20, self.car_x))
-        self.car_y = max(20, min(SCREEN_HEIGHT - 20, self.car_y))
 
         # Обновление состояния кнопок
         mouse_pos = pygame.mouse.get_pos()
@@ -808,7 +983,7 @@ class CarGame:
         self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 20))
 
         # Информация об управлении
-        controls = self.small_font.render("W/S - газ/тормоз, A/D - поворот, SPACE - ручной тормоз (занос)", True, TEXT_COLOR)
+        controls = self.small_font.render("W/S - газ/тормоз, A/D - поворот, SPACE - ручной тормоз, R - респавн", True, TEXT_COLOR)
         self.screen.blit(controls, (SCREEN_WIDTH // 2 - controls.get_width() // 2, 50))
 
         # Рисуем загруженную трассу или стандартную дорогу
@@ -851,7 +1026,6 @@ class CarGame:
             button.draw(self.screen)
 
     def draw_custom_track(self):
-        """Рисует загруженную пользовательскую трассу"""
         if not self.track_data:
             return
 
@@ -926,8 +1100,42 @@ class CarGame:
                 pygame.draw.lines(self.screen, ACCENT, False, inner_screen, 3)
                 pygame.draw.lines(self.screen, ACCENT, False, outer_screen, 3)
 
+        # Рисуем стартовую линию
+        if 'start_line' in self.track_data:
+            start_line = self.track_data['start_line']
+            start_screen = (start_line['start'][0] + 400, 400 - start_line['start'][1])
+            end_screen = (start_line['end'][0] + 400, 400 - start_line['end'][1])
+            
+            # Рисуем линию
+            pygame.draw.line(self.screen, WHITE, start_screen, end_screen, 4)
+            
+            # Рисуем стрелку направления
+            mid_x = (start_screen[0] + end_screen[0]) / 2
+            mid_y = (start_screen[1] + end_screen[1]) / 2
+            
+            # Направление стрелки
+            dir_x, dir_y = start_line['direction']
+            arrow_length = 25
+            arrow_end_x = mid_x + dir_x * arrow_length
+            arrow_end_y = mid_y - dir_y * arrow_length
+            
+            pygame.draw.line(self.screen, GREEN, (mid_x, mid_y), (arrow_end_x, arrow_end_y), 4)
+            
+            # Боковые стороны стрелки
+            arrow_side_length = 12
+            perp_dx = -dir_y * 0.7
+            perp_dy = dir_x * 0.7
+            
+            left_arrow_x = arrow_end_x - dir_x * arrow_side_length + perp_dx * arrow_side_length
+            left_arrow_y = arrow_end_y + dir_y * arrow_side_length + perp_dy * arrow_side_length
+            
+            right_arrow_x = arrow_end_x - dir_x * arrow_side_length - perp_dx * arrow_side_length
+            right_arrow_y = arrow_end_y + dir_y * arrow_side_length - perp_dy * arrow_side_length
+            
+            pygame.draw.line(self.screen, GREEN, (arrow_end_x, arrow_end_y), (left_arrow_x, left_arrow_y), 3)
+            pygame.draw.line(self.screen, GREEN, (arrow_end_x, arrow_end_y), (right_arrow_x, right_arrow_y), 3)
+
     def draw_default_track(self):
-        """Рисует стандартную дорогу если нет загруженной трассы"""
         pygame.draw.rect(self.screen, ROAD_COLOR, (100, 100, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 200), border_radius=20)
         pygame.draw.rect(self.screen, ACCENT, (100, 100, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 200), 5, border_radius=20)
 
@@ -983,7 +1191,6 @@ class MainMenu:
                             elif i == 2:
                                 return "quit"
 
-        # Обновление состояния кнопок
         mouse_pos = pygame.mouse.get_pos()
         for button in self.buttons:
             button.check_hover(mouse_pos)
@@ -993,19 +1200,16 @@ class MainMenu:
     def draw(self):
         self.screen.fill(BACKGROUND)
 
-        # Заголовок
         title = self.font.render("ГОНОЧНАЯ ИГРА", True, TEXT_COLOR)
         subtitle = self.small_font.render("Управляй машинкой и создавай свои треки!", True, TEXT_COLOR)
 
         self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 150))
         self.screen.blit(subtitle, (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, 220))
 
-        # Рисуем кнопки
         for button in self.buttons:
             button.draw(self.screen)
 
-        # Информация
-        info = self.small_font.render("WASD для движения, SPACE для ручного тормоза", True, TEXT_COLOR)
+        info = self.small_font.render("WASD для движения, SPACE для ручного тормоза, R для респавна", True, TEXT_COLOR)
         self.screen.blit(info, (SCREEN_WIDTH // 2 - info.get_width() // 2, 550))
 
 
@@ -1029,6 +1233,7 @@ def main():
             menu.draw()
 
         elif current_screen == "track_select":
+            track_selector.load_tracks()
             result = track_selector.handle_events()
             if result == "game" and track_selector.selected_track:
                 game.set_track(track_selector.selected_track)
