@@ -6,6 +6,7 @@ import os
 import random
 import numpy as np
 from collections import deque
+from datetime import datetime
 
 # Инициализация Pygame
 pygame.init()
@@ -76,9 +77,10 @@ class NeuralNetwork:
         
         # Для обучения
         self.fitness = 0
-        self.distance_traveled = 0
-        self.checkpoints_passed = 0
-        self.time_alive = 0
+        self.best_lap_time = float('inf')
+        self.lap_count = 0
+        self.total_time = 0
+        self.consistency = 0  # Стабильность времени кругов
 
     def copy(self):
         """Создание копии нейронной сети"""
@@ -87,6 +89,8 @@ class NeuralNetwork:
         copy.weights_ho = self.weights_ho.copy()
         copy.bias_h = self.bias_h.copy()
         copy.bias_o = self.bias_o.copy()
+        copy.best_lap_time = self.best_lap_time
+        copy.lap_count = self.lap_count
         return copy
 
     def predict(self, input_array):
@@ -154,7 +158,9 @@ class NeuralNetwork:
             'weights_ho': self.weights_ho.tolist(),
             'bias_h': self.bias_h.tolist(),
             'bias_o': self.bias_o.tolist(),
-            'fitness': self.fitness
+            'fitness': self.fitness,
+            'best_lap_time': self.best_lap_time,
+            'lap_count': self.lap_count
         }
         with open(filename, 'w') as f:
             json.dump(data, f)
@@ -168,6 +174,8 @@ class NeuralNetwork:
         self.bias_h = np.array(data['bias_h'])
         self.bias_o = np.array(data['bias_o'])
         self.fitness = data['fitness']
+        self.best_lap_time = data.get('best_lap_time', float('inf'))
+        self.lap_count = data.get('lap_count', 0)
 
 class GeneticAlgorithm:
     def __init__(self, population_size, input_nodes, hidden_nodes, output_nodes):
@@ -227,10 +235,9 @@ class GeneticAlgorithm:
         # Сброс fitness для нового поколения
         for network in self.population:
             network.fitness = 0
-            network.distance_traveled = 0
-            network.checkpoints_passed = 0
-            network.time_alive = 0
-    
+            network.total_time = 0
+            network.consistency = 0
+
     def select_parent(self):
         """Рулеточный выбор родителя"""
         total_fitness = sum(max(net.fitness, 0) for net in self.population)
@@ -250,12 +257,18 @@ class GeneticAlgorithm:
     def get_stats(self):
         """Получение статистики генетического алгоритма"""
         fitnesses = [net.fitness for net in self.population]
+        best_lap_times = [net.best_lap_time for net in self.population if net.best_lap_time < float('inf')]
+        lap_counts = [net.lap_count for net in self.population]
+        
+        best_lap_seconds = min(best_lap_times) / FPS if best_lap_times else float('inf')
+        
         return {
             'generation': self.generation,
             'best_fitness': self.best_fitness,
             'avg_fitness': np.mean(fitnesses),
             'max_fitness': np.max(fitnesses),
             'min_fitness': np.min(fitnesses),
+            'best_lap_time': best_lap_seconds,
             'population_size': len(self.population)
         }
 
@@ -767,10 +780,11 @@ class TrackSelector:
         self.back_button.draw(self.screen)
 
 class Car:
-    def __init__(self, x, y, angle, network=None):
+    def __init__(self, x, y, angle, network=None, car_id=0):
         self.x = x
         self.y = y
         self.angle = angle
+        self.car_id = car_id
         
         # Физические параметры
         self.velocity_x = 0
@@ -802,14 +816,29 @@ class Car:
         self.sensor_distances = [0] * len(self.sensor_angles)
         self.max_sensor_distance = 300
         
-        # Для расчета фитнеса
-        self.distance_traveled = 0
-        self.checkpoints_passed = set()
-        self.last_checkpoint = 0
+        # Для расчета фитнеса и отслеживания кругов
         self.lap_count = 0
+        self.current_lap_time = 0
+        self.last_lap_time = 0
+        self.best_lap_time = float('inf')
+        self.total_time = 0
         self.time_alive = 0
         self.is_alive = True
         self.crash_timer = 0
+        self.fitness = 0
+        
+        # Победа при 10 кругах
+        self.WINNING_LAPS = 10
+        
+        # Для отслеживания прохождения стартовой линии
+        self.last_crossed_start_time = 0
+        self.can_cross_start = False  # Можно ли пересекать стартовую линию
+        self.start_crossing_cooldown = 30  # Задержка перед повторным пересечением
+        
+        # Чекпоинты
+        self.checkpoints_passed = set()
+        self.next_checkpoint_index = 1
+        self.checkpoint_progress = 0
         
         # Для отслеживания бездействия
         self.inactive_timer = 0
@@ -948,10 +977,8 @@ class Car:
         car_pos = (self.x - 400, 400 - self.y)
         
         # Проверяем, находится ли точка внутри полигона дороги
-        # Создаем полигон из всех точек границ
         all_points = inner_points + list(reversed(outer_points))
         
-        # Используем алгоритм ray casting для проверки нахождения внутри полигона
         inside = False
         n = len(all_points)
         
@@ -962,21 +989,87 @@ class Car:
                 if car_pos[0] < intersect_x:
                     inside = not inside
         
-        # Если машинка не внутри полигона дороги, значит она снаружи
         return not inside
+
+    def check_start_line_crossing(self, track_data):
+        """Проверяет пересечение стартовой линии"""
+        if not track_data or 'start_line' not in track_data:
+            return False
+            
+        start_line = track_data['start_line']
+        start = (start_line['start'][0] + 400, 400 - start_line['start'][1])
+        end = (start_line['end'][0] + 400, 400 - start_line['end'][1])
+        
+        # Проверяем, пересекла ли машинка стартовую линию
+        car_pos = (self.x, self.y)
+        last_pos = self.last_position
+        
+        # Вектор движения машинки
+        dx = car_pos[0] - last_pos[0]
+        dy = car_pos[1] - last_pos[1]
+        
+        if dx == 0 and dy == 0:
+            return False
+            
+        # Проверяем пересечение отрезка движения машинки со стартовой линией
+        intersection = self.line_intersection(last_pos, car_pos, start, end)
+        
+        if intersection:
+            # Проверяем направление пересечения (должно быть в правильном направлении)
+            line_dir = start_line['direction']
+            car_dir = (dx, dy)
+            
+            # Угол между направлением трека и движением машинки
+            dot_product = line_dir[0] * car_dir[0] + line_dir[1] * car_dir[1]
+            
+            if dot_product > 0:  # Движение в правильном направлении
+                current_time = self.time_alive
+                if current_time - self.last_crossed_start_time > self.start_crossing_cooldown:
+                    self.last_crossed_start_time = current_time
+                    return True
+                    
+        return False
+
+    def update_checkpoints(self, track_data):
+        """Обновляет состояние чекпоинтов"""
+        if not track_data or not track_data.get('points'):
+            return
+            
+        points = track_data['points']
+        if not points:
+            return
+            
+        # Находим ближайшую точку трека
+        car_pos = (self.x - 400, 400 - self.y)
+        min_dist = float('inf')
+        nearest_idx = 0
+        
+        for i, point in enumerate(points):
+            dist = math.hypot(car_pos[0] - point[0], car_pos[1] - point[1])
+            if dist < min_dist:
+                min_dist = dist
+                nearest_idx = i
+                
+        # Если это следующий чекпоинт по порядку, отмечаем его
+        if nearest_idx == self.next_checkpoint_index:
+            self.checkpoints_passed.add(nearest_idx)
+            self.next_checkpoint_index = (nearest_idx + 1) % len(points)
+            self.checkpoint_progress = len(self.checkpoints_passed) / len(points)
+            
+            # Если прошли все чекпоинты, разрешаем пересечение стартовой линии
+            if len(self.checkpoints_passed) == len(points):
+                self.can_cross_start = True
 
     def check_inactivity(self):
         """Проверяет, не двигалась ли машинка слишком долго"""
         speed = math.hypot(self.velocity_x, self.velocity_y)
         
-        # Если скорость очень маленькая (меньше 0.1), считаем что машинка стоит
         if speed < 0.1:
             self.inactive_timer += 1
         else:
             self.inactive_timer = 0
             
-        # Если машинка стоит дольше 1 секунды (60 кадров при FPS=60)
-        if self.inactive_timer > 60:
+        if self.inactive_timer > 120:  # 2 секунды при FPS=60
             return True
         return False
 
@@ -995,24 +1088,21 @@ class Car:
         inputs = self.get_inputs()
         outputs = self.network.predict(inputs)
         
-        # Интерпретация выходов нейронной сети
-        # outputs: [ускорение, поворот влево, поворот вправо, ручной тормоз]
-        
         self.engine_power = 0
         self.wheel_angle = 0
         self.handbrake_on = False
         
-        if outputs[0] > 0.7:  # Ускорение
+        if outputs[0] > 0.7:
             self.engine_power = self.acceleration
-        elif outputs[0] < 0.3:  # Торможение
+        elif outputs[0] < 0.3:
             self.engine_power = -self.acceleration
         
-        if outputs[1] > 0.7:  # Поворот влево
+        if outputs[1] > 0.7:
             self.wheel_angle = self.max_wheel_angle
-        elif outputs[2] > 0.7:  # Поворот вправо
+        elif outputs[2] > 0.7:
             self.wheel_angle = -self.max_wheel_angle
             
-        if outputs[3] > 0.7:  # Ручной тормоз
+        if outputs[3] > 0.7:
             self.handbrake_on = True
 
     def update(self, track_data):
@@ -1020,7 +1110,14 @@ class Car:
             return
             
         self.time_alive += 1
+        self.current_lap_time += 1
+        self.total_time += 1
         
+        # Проверка победы
+        if self.lap_count >= self.WINNING_LAPS:
+            self.is_alive = False
+            return
+            
         # Обновление сенсоров
         self.update_sensors(track_data)
         
@@ -1049,23 +1146,31 @@ class Car:
         # Обновление физики
         self.update_physics()
         
-        # Обновление пройденного расстояния
-        speed = math.hypot(self.velocity_x, self.velocity_y)
-        self.distance_traveled += speed
-        
-        # Обновление чекпоинтов
-        if track_data and track_data.get('points'):
-            current_checkpoint = self.find_nearest_checkpoint(track_data)
+        # Проверка пересечения стартовой линии
+        if self.check_start_line_crossing(track_data) and self.can_cross_start:
+            # Завершили круг
+            self.lap_count += 1
+            self.last_lap_time = self.current_lap_time
             
-            if current_checkpoint != self.last_checkpoint:
-                if current_checkpoint not in self.checkpoints_passed:
-                    self.checkpoints_passed.add(current_checkpoint)
+            # Обновляем лучшее время
+            if self.current_lap_time < self.best_lap_time:
+                self.best_lap_time = self.current_lap_time
                 
-                # Полный круг
-                if current_checkpoint == 0 and self.last_checkpoint == len(track_data['points']) - 1:
-                    self.lap_count += 1
-                
-                self.last_checkpoint = current_checkpoint
+            # Сбрасываем для следующего круга
+            self.current_lap_time = 0
+            self.checkpoints_passed.clear()
+            self.next_checkpoint_index = 1
+            self.can_cross_start = False
+            self.checkpoint_progress = 0
+            
+        # Обновление чекпоинтов
+        self.update_checkpoints(track_data)
+        
+        # Сохраняем позицию для следующего кадра
+        self.last_position = (self.x, self.y)
+        
+        # Рассчитываем фитнес
+        self.calculate_fitness()
 
     def update_physics(self):
         angle_rad = math.radians(self.angle)
@@ -1125,50 +1230,43 @@ class Car:
             self.velocity_x *= scale
             self.velocity_y *= scale
 
-    def find_nearest_checkpoint(self, track_data):
-        if not track_data or not track_data.get('points'):
-            return 0
-            
-        points = track_data['points']
-        car_pos = (self.x - 400, 400 - self.y)
-        
-        start_idx = max(0, self.last_checkpoint - 2)
-        end_idx = min(len(points), self.last_checkpoint + 3)
-        
-        min_dist = float('inf')
-        nearest_index = self.last_checkpoint
-        
-        for i in range(start_idx, end_idx):
-            point = points[i % len(points)]
-            dx, dy = car_pos[0] - point[0], car_pos[1] - point[1]
-            dist = dx*dx + dy*dy
-            
-            if dist < min_dist:
-                min_dist = dist
-                nearest_index = i % len(points)
-        
-        return nearest_index
-
     def calculate_fitness(self):
-        """Расчет фитнес-функции"""
+        """Расчет фитнес-функции - основное внимание на время кругов"""
         fitness = 0
         
-        # Основной компонент - пройденное расстояние
-        fitness += self.distance_traveled * 0.1
+        # Основной компонент - количество кругов (большой бонус)
+        fitness += self.lap_count * 1000
         
-        # Бонус за пройденные чекпоинты
-        fitness += len(self.checkpoints_passed) * 50
+        # Бонус за победу (10 кругов)
+        if self.lap_count >= self.WINNING_LAPS:
+            fitness += 10000  # Огромный бонус за победу
         
-        # Большой бонус за полные круги
-        fitness += self.lap_count * 500
+        # Бонус за лучшее время круга (чем меньше время, тем больше бонус)
+        if self.best_lap_time < float('inf'):
+            # Инвертируем время: меньшее время = больший бонус
+            time_bonus = max(0, 5000 / (self.best_lap_time + 1))  # +1 чтобы избежать деления на 0
+            fitness += time_bonus
+            
+        # Бонус за стабильность (если есть несколько кругов с похожим временем)
+        if self.lap_count > 1 and self.last_lap_time > 0 and self.best_lap_time < float('inf'):
+            time_diff = abs(self.last_lap_time - self.best_lap_time)
+            if time_diff < 60:  # Если разница меньше 1 секунды (60 кадров)
+                consistency_bonus = 100 * (60 - time_diff) / 60
+                fitness += consistency_bonus
         
-        # Бонус за время жизни (поощряет выживание)
-        fitness += self.time_alive * 0.1
+        # Бонус за прогресс по чекпоинтам
+        fitness += self.checkpoint_progress * 100
         
         # Штраф за столкновения
         if min(self.sensor_distances) < 20:
             fitness *= 0.9
         
+        # Штраф за слишком медленное движение
+        speed = math.hypot(self.velocity_x, self.velocity_y)
+        if speed < 0.5:
+            fitness *= 0.95
+            
+        self.fitness = fitness
         return fitness
 
     def draw(self, surface, show_sensors=False):
@@ -1236,7 +1334,7 @@ class CarGame:
             Button(200, 720, 120, 50, "СЕНСОРЫ", BLUE),
             Button(350, 720, 120, 50, "СБРОС", RED),
             Button(500, 720, 120, 50, "УСКОРИТЬ", PURPLE),
-            Button(650, 720, 120, 50, "СЛЕД. ПОПУЛЯЦИЯ", GREEN)
+            Button(650, 720, 220, 50, "СЛЕД. ПОПУЛЯЦИЯ", TRACK_COLOR)
         ]
 
         # Шрифты
@@ -1280,12 +1378,13 @@ class CarGame:
         if not self.start_position:
             return
             
-        for network in self.ga.population:
+        for i, network in enumerate(self.ga.population):
             car = Car(
                 x=self.start_position[0] + random.uniform(-10, 10),
                 y=self.start_position[1] + random.uniform(-10, 10),
                 angle=self.start_angle + random.uniform(-10, 10),
-                network=network
+                network=network,
+                car_id=i
             )
             self.cars.append(car)
 
@@ -1303,28 +1402,29 @@ class CarGame:
                     if car.is_alive:
                         alive_count += 1
             
-            # Проверка завершения генерации - когда все машинки исчезли
-            if alive_count == 0:
-                self.next_generation()
-            
-            # Обновление fitness для всех автомобилей
+            # Обновление fitness в нейронных сетях
             for i, car in enumerate(self.cars):
                 if car.is_alive:
-                    self.ga.population[i].fitness = car.calculate_fitness()
-                    self.ga.population[i].distance_traveled = car.distance_traveled
-                    self.ga.population[i].checkpoints_passed = len(car.checkpoints_passed)
-                    self.ga.population[i].time_alive = car.time_alive
+                    self.ga.population[i].fitness = car.fitness
+                    self.ga.population[i].best_lap_time = car.best_lap_time
+                    self.ga.population[i].lap_count = car.lap_count
+                    self.ga.population[i].total_time = car.total_time
             
             # Находим лучший автомобиль
             if self.cars:
                 alive_cars = [i for i, car in enumerate(self.cars) if car.is_alive]
                 if alive_cars:
                     self.best_car_index = max(alive_cars, 
-                                            key=lambda i: self.cars[i].calculate_fitness())
+                                            key=lambda i: self.cars[i].fitness)
+            
+            # Проверка завершения поколения
+            if alive_count == 0 or self.generation_time > 3000:  # Максимум 50 секунд на поколение
+                self.next_generation()
 
     def next_generation(self):
+        # Убедимся, что все фитнесы обновлены
         for i, car in enumerate(self.cars):
-            self.ga.population[i].fitness = car.calculate_fitness()
+            self.ga.population[i].fitness = car.fitness
         
         self.ga.evolve()
         self.initialize_cars()
@@ -1413,38 +1513,41 @@ class CarGame:
                     if car.is_alive:
                         car.draw(self.screen, self.show_sensors and i == self.best_car_index)
             else:
-                
                 if self.best_car_index < len(self.cars) and self.cars[self.best_car_index].is_alive:
                     self.cars[self.best_car_index].draw(self.screen, self.show_sensors)
 
         stats = self.ga.get_stats()
         alive_cars = [car for car in self.cars if car.is_alive]
         
+        # Рассчитываем время в секундах
+        generation_time_seconds = self.generation_time / FPS
+        
         if alive_cars:
-            best_car = alive_cars[0]
-            for car in alive_cars:
-                if car.calculate_fitness() > best_car.calculate_fitness():
-                    best_car = car
-                    
+            best_car = self.cars[self.best_car_index]
+            best_car_lap_time = best_car.best_lap_time / FPS if best_car.best_lap_time < float('inf') else float('inf')
+            best_car_current_lap_time = best_car.current_lap_time / FPS
+            
             car_info = [
                 f"Поколение: {stats['generation']}",
                 f"Лучший фитнес: {stats['best_fitness']:.1f}",
                 f"Средний фитнес: {stats['avg_fitness']:.1f}",
+                f"Лучшее время круга: {stats['best_lap_time']:.2f} сек",
+                f"Время поколения: {generation_time_seconds:.1f} сек",
                 f"Популяция: {len(self.cars)}",
                 f"Живые: {len(alive_cars)}",
-                f"Время поколения: {self.generation_time}",
-                f"Лучший авто - круги: {best_car.lap_count}",
-                f"Лучший авто - чекпоинты: {len(best_car.checkpoints_passed)}",
-                f"Лучший авто - дистанция: {best_car.distance_traveled:.1f}"
+                f"Лучший авто - круги: {best_car.lap_count}/10",
+                f"Лучший авто - лучшее время: {best_car_lap_time:.2f} сек",
+                f"Лучший авто - текущий круг: {best_car_current_lap_time:.1f} сек"
             ]
         else:
             car_info = [
                 f"Поколение: {stats['generation']}",
                 f"Лучший фитнес: {stats['best_fitness']:.1f}",
                 f"Средний фитнес: {stats['avg_fitness']:.1f}",
+                f"Лучшее время круга: {stats['best_lap_time']:.2f} сек",
+                f"Время поколения: {generation_time_seconds:.1f} сек",
                 f"Популяция: {len(self.cars)}",
                 f"Живые: {len(alive_cars)}",
-                f"Время поколения: {self.generation_time}",
                 "Все машинки исчезли. Следующее поколение скоро начнется..."
             ]
 
