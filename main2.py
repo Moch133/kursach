@@ -12,8 +12,8 @@ from datetime import datetime
 pygame.init()
 
 # Константы
-SCREEN_WIDTH = 1200
-SCREEN_HEIGHT = 800
+SCREEN_WIDTH = 1550
+SCREEN_HEIGHT = 900
 FPS = 60
 
 # Цвета
@@ -33,6 +33,102 @@ YELLOW = (255, 255, 100)
 PURPLE = (180, 100, 220)
 ORANGE = (255, 150, 50)
 CYAN = (100, 220, 220)
+NEURAL_BG = (20, 24, 32)  # Цвет фона для нейронных связей
+
+class NeuralBackground:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.nodes = []
+        self.connections = []
+        self.pulse_timer = 0
+        
+        # Создаем узлы нейронной сети
+        for _ in range(30):
+            node = {
+                'x': random.randint(50, width - 50),
+                'y': random.randint(50, height - 50),
+                'radius': random.randint(2, 6),
+                'color': random.choice([(100, 150, 255), (100, 220, 220), (180, 100, 220)]),
+                'pulse_speed': random.uniform(0.02, 0.05),
+                'pulse_offset': random.uniform(0, math.pi * 2)
+            }
+            self.nodes.append(node)
+        
+        # Создаем связи между узлами
+        for i in range(len(self.nodes)):
+            for j in range(i + 1, len(self.nodes)):
+                dist = math.hypot(self.nodes[i]['x'] - self.nodes[j]['x'],
+                                self.nodes[i]['y'] - self.nodes[j]['y'])
+                if dist < 300:  # Только близкие узлы соединяем
+                    self.connections.append({
+                        'from': i,
+                        'to': j,
+                        'width': max(1, int(3 - dist / 100)),
+                        'active': False,
+                        'activation_timer': 0
+                    })
+    
+    def update(self):
+        self.pulse_timer += 0.02
+        
+        # Активируем случайные связи
+        for connection in self.connections:
+            if random.random() < 0.05:
+                connection['active'] = True
+                connection['activation_timer'] = 30
+            elif connection['active']:
+                connection['activation_timer'] -= 1
+                if connection['activation_timer'] <= 0:
+                    connection['active'] = False
+    
+    def draw(self, surface):
+        # Рисуем фон
+        surface.fill(NEURAL_BG)
+        
+        # Рисуем связи
+        for connection in self.connections:
+            node1 = self.nodes[connection['from']]
+            node2 = self.nodes[connection['to']]
+            
+            if connection['active']:
+                color = (255, 255, 200)
+                width = connection['width'] + 2
+                alpha = 180
+            else:
+                color = (80, 100, 150)
+                width = connection['width']
+                alpha = 60
+            
+            # Создаем временную поверхность для альфа-смешивания
+            line_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            pygame.draw.line(line_surf, (*color, alpha), 
+                           (node1['x'], node1['y']), 
+                           (node2['x'], node2['y']), 
+                           width)
+            surface.blit(line_surf, (0, 0))
+        
+        # Рисуем узлы с пульсацией
+        for node in self.nodes:
+            pulse = math.sin(self.pulse_timer * node['pulse_speed'] + node['pulse_offset']) * 0.3 + 1
+            current_radius = int(node['radius'] * pulse)
+            
+            # Внешнее свечение
+            glow_surf = pygame.Surface((current_radius * 4, current_radius * 4), pygame.SRCALPHA)
+            pygame.draw.circle(glow_surf, (*node['color'], 40),
+                             (current_radius * 2, current_radius * 2),
+                             current_radius * 2)
+            surface.blit(glow_surf, 
+                        (node['x'] - current_radius * 2, 
+                         node['y'] - current_radius * 2))
+            
+            # Сам узел
+            pygame.draw.circle(surface, node['color'],
+                             (int(node['x']), int(node['y'])),
+                             current_radius)
+            pygame.draw.circle(surface, (255, 255, 255, 100),
+                             (int(node['x']), int(node['y'])),
+                             current_radius, 1)
 
 class Button:
     def __init__(self, x, y, width, height, text, color=ACCENT, hover_color=None):
@@ -1551,16 +1647,35 @@ class CarGame:
                 "Все машинки исчезли. Следующее поколение скоро начнется..."
             ]
 
+        # Рисуем рамку для статистики
+        stat_width = 580
+        stat_height = len(car_info) * 25 + 40
+        stat_x = 1000
+        stat_y = 100
+        
+        # Фон рамки
+        pygame.draw.rect(self.screen, PANEL_BG, (stat_x, stat_y, stat_width, stat_height), border_radius=8)
+        
+        # Внешняя рамка
+        pygame.draw.rect(self.screen, ACCENT, (stat_x, stat_y, stat_width, stat_height), 3, border_radius=8)
+        
+        # Внутренняя рамка
+        pygame.draw.rect(self.screen, SECONDARY, (stat_x + 3, stat_y + 3, stat_width - 6, stat_height - 6), 1, border_radius=6)
+        
+        # Заголовок статистики
+        stat_title = self.small_font.render("СТАТИСТИКА", True, YELLOW)
+        self.screen.blit(stat_title, (stat_x + stat_width // 2 - stat_title.get_width() // 2, stat_y + 10))
+
         for i, text in enumerate(car_info):
             text_surf = self.small_font.render(text, True, TEXT_COLOR)
-            self.screen.blit(text_surf, (1020, 120 + i * 25))
+            self.screen.blit(text_surf, (stat_x + 20, stat_y + 40 + i * 25))
 
         # Ускоренный режим
         if self.fast_mode:
             fast_text = self.small_font.render("УСКОРЕННЫЙ РЕЖИМ ВКЛ", True, YELLOW)
-            self.screen.blit(fast_text, (1020, 550))
+            self.screen.blit(fast_text, (1020, stat_y + stat_height + 20))
             multiplier_text = self.small_font.render(f"Скорость: x{self.fast_mode_multiplier}", True, YELLOW)
-            self.screen.blit(multiplier_text, (1020, 570))
+            self.screen.blit(multiplier_text, (1020, stat_y + stat_height + 40))
 
         hints = [
             "S - показать/скрыть сенсоры",
@@ -1571,7 +1686,7 @@ class CarGame:
 
         for i, hint in enumerate(hints):
             hint_surf = self.small_font.render(hint, True, YELLOW)
-            self.screen.blit(hint_surf, (1020, 600 + i * 25))
+            self.screen.blit(hint_surf, (1020, stat_y + stat_height + 70 + i * 25))
 
         # Кнопки
         for button in self.buttons:
@@ -1670,6 +1785,7 @@ class CarGame:
 class MainMenu:
     def __init__(self, screen):
         self.screen = screen
+        self.background = NeuralBackground(SCREEN_WIDTH, SCREEN_HEIGHT)
         self.buttons = [
             Button(SCREEN_WIDTH // 2 - 150, 300, 300, 60, "ИГРАТЬ", ACCENT),
             Button(SCREEN_WIDTH // 2 - 150, 380, 300, 60, "РЕДАКТОР ТРЕКОВ", BLUE),
@@ -1677,6 +1793,7 @@ class MainMenu:
         ]
         self.font = pygame.font.SysFont('Arial', 48)
         self.small_font = pygame.font.SysFont('Arial', 24)
+        self.title_font = pygame.font.SysFont('Arial', 64, bold=True)
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -1699,19 +1816,45 @@ class MainMenu:
         return "menu"
 
     def draw(self):
-        self.screen.fill(BACKGROUND)
+        # Рисуем анимированный фон нейронных связей
+        self.background.update()
+        self.background.draw(self.screen)
 
-        title = self.font.render("ГОНОЧНАЯ ИГРА", True, TEXT_COLOR)
-        subtitle = self.small_font.render("Генетический алгоритм обучения нейронных сетей", True, TEXT_COLOR)
+        # Затемняем фон для лучшей читаемости текста
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))  # Полупрозрачный черный
+        self.screen.blit(overlay, (0, 0))
 
-        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 150))
-        self.screen.blit(subtitle, (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, 220))
+        # Заголовок с эффектом свечения
+        title = self.title_font.render("AI RACING SIMULATOR", True, ACCENT)
+        title_shadow = self.title_font.render("AI RACING SIMULATOR", True, (100, 120, 255))
+        
+        # Небольшая тень для объема
+        self.screen.blit(title_shadow, (SCREEN_WIDTH // 2 - title.get_width() // 2 + 3, 103))
+        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 100))
 
+        # Подзаголовок
+        subtitle = self.small_font.render("Q - обучение совмещенное с генетическим алгоритмом для обучения машинок", True, CYAN)
+        self.screen.blit(subtitle, (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, 180))
+
+        # Информация о проекте
+        info_lines = [
+            "Искусственный интеллект учится водить машину с помощью генетического алгоритма.",
+            "Каждое поколение становится лучше благодаря естественному отбору.",
+            "Создавайте собственные трассы в редакторе и наблюдайте за эволюцией ИИ!"
+        ]
+        
+        for i, line in enumerate(info_lines):
+            info_text = self.small_font.render(line, True, TEXT_COLOR)
+            self.screen.blit(info_text, (SCREEN_WIDTH // 2 - info_text.get_width() // 2, 550 + i * 30))
+
+        # Рисуем кнопки
         for button in self.buttons:
             button.draw(self.screen)
 
-        info = self.small_font.render("", True, TEXT_COLOR)
-        self.screen.blit(info, (SCREEN_WIDTH // 2 - info.get_width() // 2, 550))
+        # Подсказка внизу
+        hint = self.small_font.render("Используйте мышь для навигации по меню", True, (200, 200, 200))
+        self.screen.blit(hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 750))
 
 def main():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
