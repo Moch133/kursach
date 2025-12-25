@@ -1,3 +1,9 @@
+try:
+    import pygame
+    from pygame.locals import *
+except ImportError:
+    print("Pygame не установлен. Установите его командой: pip install pygame")
+    exit(1)
 import pygame
 import sys
 import math
@@ -5,18 +11,13 @@ import json
 import os
 import random
 import numpy as np
-from collections import deque
-from datetime import datetime
 
-# Инициализация Pygame
 pygame.init()
 
-# Константы
 SCREEN_WIDTH = 1550
 SCREEN_HEIGHT = 900
 FPS = 60
 
-# Цвета
 BACKGROUND = (40, 44, 52)
 PANEL_BG = (30, 34, 42)
 ACCENT = (86, 98, 246)
@@ -33,103 +34,7 @@ YELLOW = (255, 255, 100)
 PURPLE = (180, 100, 220)
 ORANGE = (255, 150, 50)
 CYAN = (100, 220, 220)
-NEURAL_BG = (20, 24, 32)  # Цвет фона для нейронных связей
-
-class NeuralBackground:
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-        self.nodes = []
-        self.connections = []
-        self.pulse_timer = 0
-        
-        # Создаем узлы нейронной сети
-        for _ in range(30):
-            node = {
-                'x': random.randint(50, width - 50),
-                'y': random.randint(50, height - 50),
-                'radius': random.randint(2, 6),
-                'color': random.choice([(100, 150, 255), (100, 220, 220), (180, 100, 220)]),
-                'pulse_speed': random.uniform(0.02, 0.05),
-                'pulse_offset': random.uniform(0, math.pi * 2)
-            }
-            self.nodes.append(node)
-        
-        # Создаем связи между узлами
-        for i in range(len(self.nodes)):
-            for j in range(i + 1, len(self.nodes)):
-                dist = math.hypot(self.nodes[i]['x'] - self.nodes[j]['x'],
-                                self.nodes[i]['y'] - self.nodes[j]['y'])
-                if dist < 300:  # Только близкие узлы соединяем
-                    self.connections.append({
-                        'from': i,
-                        'to': j,
-                        'width': max(1, int(3 - dist / 100)),
-                        'active': False,
-                        'activation_timer': 0
-                    })
-    
-    def update(self):
-        self.pulse_timer += 0.02
-        
-        # Активируем случайные связи
-        for connection in self.connections:
-            if random.random() < 0.05:
-                connection['active'] = True
-                connection['activation_timer'] = 30
-            elif connection['active']:
-                connection['activation_timer'] -= 1
-                if connection['activation_timer'] <= 0:
-                    connection['active'] = False
-    
-    def draw(self, surface):
-        # Рисуем фон
-        surface.fill(NEURAL_BG)
-        
-        # Рисуем связи
-        for connection in self.connections:
-            node1 = self.nodes[connection['from']]
-            node2 = self.nodes[connection['to']]
-            
-            if connection['active']:
-                color = (255, 255, 200)
-                width = connection['width'] + 2
-                alpha = 180
-            else:
-                color = (80, 100, 150)
-                width = connection['width']
-                alpha = 60
-            
-            # Создаем временную поверхность для альфа-смешивания
-            line_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-            pygame.draw.line(line_surf, (*color, alpha), 
-                           (node1['x'], node1['y']), 
-                           (node2['x'], node2['y']), 
-                           width)
-            surface.blit(line_surf, (0, 0))
-        
-        # Рисуем узлы с пульсацией
-        for node in self.nodes:
-            pulse = math.sin(self.pulse_timer * node['pulse_speed'] + node['pulse_offset']) * 0.3 + 1
-            current_radius = int(node['radius'] * pulse)
-            
-            # Внешнее свечение
-            glow_surf = pygame.Surface((current_radius * 4, current_radius * 4), pygame.SRCALPHA)
-            pygame.draw.circle(glow_surf, (*node['color'], 40),
-                             (current_radius * 2, current_radius * 2),
-                             current_radius * 2)
-            surface.blit(glow_surf, 
-                        (node['x'] - current_radius * 2, 
-                         node['y'] - current_radius * 2))
-            
-            # Сам узел
-            pygame.draw.circle(surface, node['color'],
-                             (int(node['x']), int(node['y'])),
-                             current_radius)
-            pygame.draw.circle(surface, (255, 255, 255, 100),
-                             (int(node['x']), int(node['y'])),
-                             current_radius, 1)
-
+DGREEN = (3,203,0)
 class Button:
     def __init__(self, x, y, width, height, text, color=ACCENT, hover_color=None):
         self.rect = pygame.Rect(x, y, width, height)
@@ -165,18 +70,16 @@ class NeuralNetwork:
         self.hidden_nodes = hidden_nodes
         self.output_nodes = output_nodes
         
-        # Инициализация весов и смещений
         self.weights_ih = np.random.randn(hidden_nodes, input_nodes) * np.sqrt(2.0 / input_nodes)
         self.weights_ho = np.random.randn(output_nodes, hidden_nodes) * np.sqrt(2.0 / hidden_nodes)
         self.bias_h = np.zeros((hidden_nodes, 1))
         self.bias_o = np.zeros((output_nodes, 1))
         
-        # Для обучения
         self.fitness = 0
         self.best_lap_time = float('inf')
         self.lap_count = 0
         self.total_time = 0
-        self.consistency = 0  # Стабильность времени кругов
+        self.consistency = 0 
 
     def copy(self):
         """Создание копии нейронной сети"""
@@ -283,7 +186,7 @@ class GeneticAlgorithm:
         
         # Параметры алгоритма
         self.mutation_rate = 0.2
-        self.elitism = 0.2  # Лучшие особи сохраняются без изменений
+        self.elitism = 0.2  #лучшие особи сохраняются без изменений
         self.crossover_rate = 0.7
         
         # Инициализация популяции
@@ -305,14 +208,14 @@ class GeneticAlgorithm:
         # Выбор лучших для следующего поколения
         next_generation = []
         
-        # Элитизм: сохраняем лучшие особи
+        # Элитизм(сохраняем лучшие особи)
         elitism_count = int(self.elitism * self.population_size)
         for i in range(elitism_count):
             next_generation.append(self.population[i].copy())
         
         # Заполняем остаток популяции
         while len(next_generation) < self.population_size:
-            # Выбор родителей с учетом их приспособленности
+            #выбор родителей с учетом их приспособленности
             parent1 = self.select_parent()
             parent2 = self.select_parent()
             
@@ -328,7 +231,7 @@ class GeneticAlgorithm:
         
         self.population = next_generation
         
-        # Сброс fitness для нового поколения
+        #сброс fitness для нового поколения
         for network in self.population:
             network.fitness = 0
             network.total_time = 0
@@ -380,24 +283,23 @@ class TrackEditor:
         self.current_track = None
         self.start_line = None
 
-        # Папка для треков
+        #папка для треков
         script_dir = os.path.dirname(os.path.abspath(__file__))
         self.tracks_folder = os.path.join(script_dir, "saved_tracks")
         if not os.path.exists(self.tracks_folder):
             os.makedirs(self.tracks_folder)
 
-        # Кнопки
+        # кнопки
         self.buttons = [
             Button(50, 720, 120, 50, "ОЧИСТИТЬ", RED),
-            Button(190, 720, 120, 50, "СОХРАНИТЬ", GREEN),
+            Button(190, 720, 120, 50, "СОХРАНИТЬ", DGREEN),
             Button(330, 720, 120, 50, "ЗАГРУЗИТЬ", BLUE),
             Button(470, 720, 120, 50, "УДАЛИТЬ", ORANGE),
             Button(610, 720, 120, 50, "НАЗАД", SECONDARY),
-            Button(750, 720, 50, 50, "+", GREEN),
+            Button(750, 720, 50, 50, "+", DGREEN),
             Button(810, 720, 50, 50, "-", RED)
         ]
 
-        # Шрифты
         self.font = pygame.font.SysFont('Arial', 24)
         self.small_font = pygame.font.SysFont('Arial', 16)
         
@@ -478,7 +380,6 @@ class TrackEditor:
         x, y = mouse_pos[0] - 400, 400 - mouse_pos[1]
         new_point = (x, y)
 
-        # Проверка на существующие точки
         for i, point in enumerate(self.points):
             dist = math.hypot(x - point[0], y - point[1])
             if dist < 15:
@@ -494,7 +395,6 @@ class TrackEditor:
             self.show_message("Трек замкнут. Очистите для нового.", 120)
             return
 
-        # Проверка расстояния
         if self.points:
             min_dist = min(math.hypot(new_point[0] - p[0], new_point[1] - p[1]) for p in self.points)
             if min_dist < 20:
@@ -504,7 +404,7 @@ class TrackEditor:
         self.points.append(new_point)
         self.show_message(f"Точка добавлена. Всего: {len(self.points)}", 90)
 
-        # Автозамыкание
+        #автозамыкание
         if len(self.points) >= 3 and not self.is_closed:
             first = self.points[0]
             if math.hypot(new_point[0] - first[0], new_point[1] - first[1]) < 30:
@@ -662,16 +562,11 @@ class TrackEditor:
 
     def draw(self):
         self.screen.fill(BACKGROUND)
-
-        # Панели
         pygame.draw.rect(self.screen, PANEL_BG, (0, 0, SCREEN_WIDTH, 80))
         pygame.draw.rect(self.screen, PANEL_BG, (0, SCREEN_HEIGHT - 100, SCREEN_WIDTH, 100))
-
-        # Заголовок
         title = self.font.render("РЕДАКТОР ТРЕКОВ", True, TEXT_COLOR)
         self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 20))
 
-        # Инструкция
         if not self.is_closed:
             instruction = "Добавляйте точки щелчками. Замкните трек, кликнув на первую точку."
         else:
@@ -680,10 +575,9 @@ class TrackEditor:
         instr_text = self.small_font.render(instruction, True, YELLOW if self.is_closed else TEXT_COLOR)
         self.screen.blit(instr_text, (SCREEN_WIDTH // 2 - instr_text.get_width() // 2, 50))
 
-        # Область трека
         pygame.draw.rect(self.screen, SECONDARY, (190, 90, 820, 620), 2)
 
-        # Сетка
+        #сетка
         for x in range(200, 1000, 40):
             pygame.draw.line(self.screen, GRID_COLOR, (x, 100), (x, 700), 1)
         for y in range(100, 700, 40):
@@ -707,13 +601,11 @@ class TrackEditor:
                 inner_screen = [(p[0] + 400, 400 - p[1]) for p in inner_points]
                 outer_screen = [(p[0] + 400, 400 - p[1]) for p in outer_points]
 
-                # Дорога
                 if len(inner_screen) >= 2 and len(outer_screen) >= 2:
                     road_points = inner_screen + list(reversed(outer_screen))
                     if len(road_points) >= 3:
                         pygame.draw.polygon(self.screen, ROAD_COLOR, road_points)
 
-                # Границы
                 if self.is_closed:
                     if len(inner_screen) >= 3:
                         pygame.draw.lines(self.screen, ACCENT, True, inner_screen, 3)
@@ -725,14 +617,14 @@ class TrackEditor:
                     if len(outer_screen) >= 2:
                         pygame.draw.lines(self.screen, ACCENT, False, outer_screen, 3)
 
-        # Стартовая линия
+        #Стартовая линия
         if self.start_line and self.is_closed:
             start_screen = (self.start_line['start'][0] + 400, 400 - self.start_line['start'][1])
             end_screen = (self.start_line['end'][0] + 400, 400 - self.start_line['end'][1])
             
             pygame.draw.line(self.screen, WHITE, start_screen, end_screen, 4)
             
-            # Стрелка направления
+            #Стрелка направления
             mid_x, mid_y = (start_screen[0] + end_screen[0])/2, (start_screen[1] + end_screen[1])/2
             dir_x, dir_y = self.start_line['direction']
             arrow_length = 25
@@ -740,7 +632,7 @@ class TrackEditor:
             
             pygame.draw.line(self.screen, GREEN, (mid_x, mid_y), (arrow_end_x, arrow_end_y), 4)
             
-            # Боковые стороны стрелки
+            #боковые стороны стрелки
             arrow_side_length, perp_dx, perp_dy = 12, -dir_y * 0.7, dir_x * 0.7
             
             left_x = arrow_end_x - dir_x * arrow_side_length + perp_dx * arrow_side_length
@@ -751,7 +643,7 @@ class TrackEditor:
             pygame.draw.line(self.screen, GREEN, (arrow_end_x, arrow_end_y), (left_x, left_y), 3)
             pygame.draw.line(self.screen, GREEN, (arrow_end_x, arrow_end_y), (right_x, right_y), 3)
 
-        # Точки
+        #точки
         if self.points:
             screen_points = [(p[0] + 400, 400 - p[1]) for p in self.points]
 
@@ -769,7 +661,7 @@ class TrackEditor:
                     text_rect = number_text.get_rect(center=(int(point[0]), int(point[1])))
                     self.screen.blit(number_text, text_rect)
 
-        # Информация
+        #информация
         status = f"Точек: {len(self.points)}"
         if self.is_closed:
             status += " (ЗАМКНУТ)"
@@ -783,18 +675,18 @@ class TrackEditor:
         width_text = self.small_font.render(f"Ширина: {self.track_width}", True, TEXT_COLOR)
         self.screen.blit(width_text, (1020, 150))
 
-        # Сообщение
+        #сообщение
         if self.message:
             msg_color = YELLOW if "Ошибка" not in self.message else RED
             msg_text = self.small_font.render(self.message, True, msg_color)
             self.screen.blit(msg_text, (1020, 320))
 
-        # Количество треков
+        # Кол-во треков
         tracks = [f for f in os.listdir(self.tracks_folder) if f.endswith('.json')]
         tracks_info = self.small_font.render(f"Сохранено треков: {len(tracks)}", True, TEXT_COLOR)
         self.screen.blit(tracks_info, (1020, 350))
 
-        # Кнопки
+        #кнопки
         for button in self.buttons:
             button.draw(self.screen)
 
@@ -882,21 +774,21 @@ class Car:
         self.angle = angle
         self.car_id = car_id
         
-        # Физические параметры
+        #физ параметры
         self.velocity_x = 0
         self.velocity_y = 0
         self.angular_velocity = 0
         self.wheel_angle = 0
         self.engine_power = 0
         
-        # Физика
+        #физика
         self.max_speed = 8
         self.acceleration = 0.6
         self.brake_power = 0.4
         self.steering_speed = 4
         self.max_wheel_angle = 35
         
-        # Физика заноса
+        #физика заноса
         self.friction = 0.93
         self.traction_fast = 0.08
         self.traction_slow = 0.02
@@ -906,7 +798,7 @@ class Car:
         
         self.handbrake_on = False
         
-        # Нейронная сеть
+        #Нейронная сеть
         self.network = network
         self.sensor_angles = [-90, -45, 0, 45, 90]
         self.sensor_distances = [0] * len(self.sensor_angles)
@@ -923,13 +815,12 @@ class Car:
         self.crash_timer = 0
         self.fitness = 0
         
-        # Победа при 10 кругах
         self.WINNING_LAPS = 10
         
         # Для отслеживания прохождения стартовой линии
         self.last_crossed_start_time = 0
         self.can_cross_start = False  # Можно ли пересекать стартовую линию
-        self.start_crossing_cooldown = 30  # Задержка перед повторным пересечением
+        self.start_crossing_cooldown = 30  #задержка перед повторным пересечением
         
         # Чекпоинты
         self.checkpoints_passed = set()
@@ -941,7 +832,7 @@ class Car:
         self.last_position = (x, y)
         self.last_distance_traveled = 0
         
-        # Графика
+        #графика
         self.color = (random.randint(100, 255), random.randint(100, 255), random.randint(100, 255))
         self.sprite = self.create_sprite()
 
@@ -950,7 +841,7 @@ class Car:
         pygame.draw.rect(sprite, self.color, (0, 5, 40, 10), border_radius=3)
         pygame.draw.rect(sprite, (40, 40, 40), (5, 7, 30, 6), border_radius=2)
 
-        # Колеса
+        #колеса
         pygame.draw.rect(sprite, (30, 30, 30), (5, 3, 6, 3))
         pygame.draw.rect(sprite, (30, 30, 30), (29, 3, 6, 3))
         pygame.draw.rect(sprite, (30, 30, 30), (5, 14, 6, 3))
@@ -1064,15 +955,15 @@ class Car:
         if not track_data or not track_data.get('points'):
             return False
             
-        # Получаем границы трека
+        #получаем границы трека
         inner_points, outer_points = self.get_track_boundaries(track_data)
         if not inner_points or not outer_points:
             return False
             
-        # Преобразуем координаты машинки в систему координат трека
+        #преобразуем координаты машинки в систему координат трека
         car_pos = (self.x - 400, 400 - self.y)
         
-        # Проверяем, находится ли точка внутри полигона дороги
+        #проверяем находится ли точка внутри полигона дороги
         all_points = inner_points + list(reversed(outer_points))
         
         inside = False
@@ -1096,29 +987,26 @@ class Car:
         start = (start_line['start'][0] + 400, 400 - start_line['start'][1])
         end = (start_line['end'][0] + 400, 400 - start_line['end'][1])
         
-        # Проверяем, пересекла ли машинка стартовую линию
         car_pos = (self.x, self.y)
         last_pos = self.last_position
         
-        # Вектор движения машинки
+        #вектор движения машинки
         dx = car_pos[0] - last_pos[0]
         dy = car_pos[1] - last_pos[1]
         
         if dx == 0 and dy == 0:
             return False
             
-        # Проверяем пересечение отрезка движения машинки со стартовой линией
         intersection = self.line_intersection(last_pos, car_pos, start, end)
         
         if intersection:
-            # Проверяем направление пересечения (должно быть в правильном направлении)
             line_dir = start_line['direction']
             car_dir = (dx, dy)
             
             # Угол между направлением трека и движением машинки
             dot_product = line_dir[0] * car_dir[0] + line_dir[1] * car_dir[1]
             
-            if dot_product > 0:  # Движение в правильном направлении
+            if dot_product > 0:
                 current_time = self.time_alive
                 if current_time - self.last_crossed_start_time > self.start_crossing_cooldown:
                     self.last_crossed_start_time = current_time
@@ -1165,7 +1053,7 @@ class Car:
         else:
             self.inactive_timer = 0
             
-        if self.inactive_timer > 120:  # 2 секунды при FPS=60
+        if self.inactive_timer > 120:
             return True
         return False
 
@@ -1209,15 +1097,13 @@ class Car:
         self.current_lap_time += 1
         self.total_time += 1
         
-        # Проверка победы
+        #Проверка
         if self.lap_count >= self.WINNING_LAPS:
             self.is_alive = False
             return
             
-        # Обновление сенсоров
         self.update_sensors(track_data)
         
-        # Проверка столкновений с границей
         if min(self.sensor_distances) < 15:
             self.crash_timer += 1
             if self.crash_timer > 10:
@@ -1226,7 +1112,6 @@ class Car:
         else:
             self.crash_timer = 0
             
-        # Проверка, не выехала ли машинка за пределы трека
         if self.is_outside_track(track_data):
             self.is_alive = False
             return
@@ -1236,19 +1121,13 @@ class Car:
             self.is_alive = False
             return
         
-        # Нейронная сеть принимает решение
         self.think()
-        
-        # Обновление физики
         self.update_physics()
         
-        # Проверка пересечения стартовой линии
         if self.check_start_line_crossing(track_data) and self.can_cross_start:
-            # Завершили круг
             self.lap_count += 1
             self.last_lap_time = self.current_lap_time
             
-            # Обновляем лучшее время
             if self.current_lap_time < self.best_lap_time:
                 self.best_lap_time = self.current_lap_time
                 
@@ -1259,13 +1138,10 @@ class Car:
             self.can_cross_start = False
             self.checkpoint_progress = 0
             
-        # Обновление чекпоинтов
         self.update_checkpoints(track_data)
         
-        # Сохраняем позицию для следующего кадра
         self.last_position = (self.x, self.y)
         
-        # Рассчитываем фитнес
         self.calculate_fitness()
 
     def update_physics(self):
@@ -1279,7 +1155,6 @@ class Car:
             self.velocity_x *= self.friction
             self.velocity_y *= self.friction
 
-        # Торможение
         if self.engine_power < 0 and not self.handbrake_on:
             speed = math.hypot(self.velocity_x, self.velocity_y)
             if speed > 0.1:
@@ -1310,16 +1185,14 @@ class Car:
                 turn_force = -turn_force
             self.angular_velocity += turn_force * speed
 
-        # Применение физики
         self.angle += self.angular_velocity
         self.angle %= 360
         self.angular_velocity *= self.angular_friction
 
-        # Обновление позиции
         self.x += self.velocity_x
         self.y += self.velocity_y
 
-        # Ограничение скорости
+        # Огр. скорости
         speed = math.hypot(self.velocity_x, self.velocity_y)
         if speed > self.max_speed:
             scale = self.max_speed / speed
@@ -1335,18 +1208,18 @@ class Car:
         
         # Бонус за победу (10 кругов)
         if self.lap_count >= self.WINNING_LAPS:
-            fitness += 10000  # Огромный бонус за победу
+            fitness += 10000  #бонус за победу
         
         # Бонус за лучшее время круга (чем меньше время, тем больше бонус)
         if self.best_lap_time < float('inf'):
-            # Инвертируем время: меньшее время = больший бонус
-            time_bonus = max(0, 5000 / (self.best_lap_time + 1))  # +1 чтобы избежать деления на 0
+            # меньшее время = больший бонус
+            time_bonus = max(0, 5000 / (self.best_lap_time + 1))  
             fitness += time_bonus
             
         # Бонус за стабильность (если есть несколько кругов с похожим временем)
         if self.lap_count > 1 and self.last_lap_time > 0 and self.best_lap_time < float('inf'):
             time_diff = abs(self.last_lap_time - self.best_lap_time)
-            if time_diff < 60:  # Если разница меньше 1 секунды (60 кадров)
+            if time_diff < 60:  
                 consistency_bonus = 100 * (60 - time_diff) / 60
                 fitness += consistency_bonus
         
@@ -1373,7 +1246,7 @@ class Car:
         car_rect = rotated_car.get_rect(center=(self.x, self.y))
         surface.blit(rotated_car, car_rect)
         
-        # Рисуем сенсоры
+        #сенсоры
         if show_sensors:
             for i, angle_offset in enumerate(self.sensor_angles):
                 sensor_angle = math.radians(self.angle + angle_offset)
@@ -1399,7 +1272,6 @@ class CarGame:
         self.start_position = None
         self.start_angle = 0
         
-        # Генетический алгоритм
         self.population_size = 50
         self.ga = GeneticAlgorithm(
             population_size=self.population_size,
@@ -1408,23 +1280,19 @@ class CarGame:
             output_nodes=4   # ускорение, влево, вправо, ручной тормоз
         )
         
-        # Автомобили
         self.cars = []
         self.best_car_index = 0
         self.generation_time = 0
         
-        # Режимы
         self.training_mode = True
         self.show_sensors = True
         self.show_all_cars = True
         self.fast_mode = False
         self.fast_mode_multiplier = 5
         
-        # Управление
         self.current_car_index = 0
         self.manual_control = False
         
-        # Кнопки
         self.buttons = [
             Button(50, 720, 120, 50, "МЕНЮ", SECONDARY),
             Button(200, 720, 120, 50, "СЕНСОРЫ", BLUE),
@@ -1433,7 +1301,6 @@ class CarGame:
             Button(650, 720, 220, 50, "СЛЕД. ПОПУЛЯЦИЯ", TRACK_COLOR)
         ]
 
-        # Шрифты
         self.font = pygame.font.SysFont('Arial', 24)
         self.small_font = pygame.font.SysFont('Arial', 16)
         
@@ -1498,7 +1365,6 @@ class CarGame:
                     if car.is_alive:
                         alive_count += 1
             
-            # Обновление fitness в нейронных сетях
             for i, car in enumerate(self.cars):
                 if car.is_alive:
                     self.ga.population[i].fitness = car.fitness
@@ -1506,7 +1372,6 @@ class CarGame:
                     self.ga.population[i].lap_count = car.lap_count
                     self.ga.population[i].total_time = car.total_time
             
-            # Находим лучший автомобиль
             if self.cars:
                 alive_cars = [i for i, car in enumerate(self.cars) if car.is_alive]
                 if alive_cars:
@@ -1514,11 +1379,10 @@ class CarGame:
                                             key=lambda i: self.cars[i].fitness)
             
             # Проверка завершения поколения
-            if alive_count == 0 or self.generation_time > 3000:  # Максимум 50 секунд на поколение
+            if alive_count == 0 or self.generation_time > 3000:  
                 self.next_generation()
 
     def next_generation(self):
-        # Убедимся, что все фитнесы обновлены
         for i, car in enumerate(self.cars):
             self.ga.population[i].fitness = car.fitness
         
@@ -1615,7 +1479,6 @@ class CarGame:
         stats = self.ga.get_stats()
         alive_cars = [car for car in self.cars if car.is_alive]
         
-        # Рассчитываем время в секундах
         generation_time_seconds = self.generation_time / FPS
         
         if alive_cars:
@@ -1647,22 +1510,17 @@ class CarGame:
                 "Все машинки исчезли. Следующее поколение скоро начнется..."
             ]
 
-        # Рисуем рамку для статистики
         stat_width = 580
         stat_height = len(car_info) * 25 + 40
         stat_x = 1000
         stat_y = 100
         
-        # Фон рамки
         pygame.draw.rect(self.screen, PANEL_BG, (stat_x, stat_y, stat_width, stat_height), border_radius=8)
         
-        # Внешняя рамка
         pygame.draw.rect(self.screen, ACCENT, (stat_x, stat_y, stat_width, stat_height), 3, border_radius=8)
         
-        # Внутренняя рамка
         pygame.draw.rect(self.screen, SECONDARY, (stat_x + 3, stat_y + 3, stat_width - 6, stat_height - 6), 1, border_radius=6)
         
-        # Заголовок статистики
         stat_title = self.small_font.render("СТАТИСТИКА", True, YELLOW)
         self.screen.blit(stat_title, (stat_x + stat_width // 2 - stat_title.get_width() // 2, stat_y + 10))
 
@@ -1670,7 +1528,6 @@ class CarGame:
             text_surf = self.small_font.render(text, True, TEXT_COLOR)
             self.screen.blit(text_surf, (stat_x + 20, stat_y + 40 + i * 25))
 
-        # Ускоренный режим
         if self.fast_mode:
             fast_text = self.small_font.render("УСКОРЕННЫЙ РЕЖИМ ВКЛ", True, YELLOW)
             self.screen.blit(fast_text, (1020, stat_y + stat_height + 20))
@@ -1785,7 +1642,6 @@ class CarGame:
 class MainMenu:
     def __init__(self, screen):
         self.screen = screen
-        self.background = NeuralBackground(SCREEN_WIDTH, SCREEN_HEIGHT)
         self.buttons = [
             Button(SCREEN_WIDTH // 2 - 150, 300, 300, 60, "ИГРАТЬ", ACCENT),
             Button(SCREEN_WIDTH // 2 - 150, 380, 300, 60, "РЕДАКТОР ТРЕКОВ", BLUE),
@@ -1816,45 +1672,34 @@ class MainMenu:
         return "menu"
 
     def draw(self):
-        # Рисуем анимированный фон нейронных связей
-        self.background.update()
-        self.background.draw(self.screen)
+        DARK_GRAY = (70, 70, 70)
+        self.screen.fill(DARK_GRAY)
 
-        # Затемняем фон для лучшей читаемости текста
+        #градиент
+        for y in range(0, SCREEN_HEIGHT, 5):
+            alpha = int(100 * (y / SCREEN_HEIGHT))
+            color = (
+                DARK_GRAY[0] + alpha // 10,
+                DARK_GRAY[1] + alpha // 10,
+                DARK_GRAY[2] + alpha // 10
+            )
+            pygame.draw.line(self.screen, color, (0, y), (SCREEN_WIDTH, y), 5)
+
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 150))  # Полупрозрачный черный
+        overlay.fill((0, 0, 0, 80))
         self.screen.blit(overlay, (0, 0))
 
-        # Заголовок с эффектом свечения
         title = self.title_font.render("AI RACING SIMULATOR", True, ACCENT)
-        title_shadow = self.title_font.render("AI RACING SIMULATOR", True, (100, 120, 255))
+        title_shadow = self.title_font.render("AI RACING SIMULATOR", True, (30, 30, 30))
         
-        # Небольшая тень для объема
         self.screen.blit(title_shadow, (SCREEN_WIDTH // 2 - title.get_width() // 2 + 3, 103))
         self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 100))
 
-        # Подзаголовок
         subtitle = self.small_font.render("Q - обучение совмещенное с генетическим алгоритмом для обучения машинок", True, CYAN)
         self.screen.blit(subtitle, (SCREEN_WIDTH // 2 - subtitle.get_width() // 2, 180))
 
-        # Информация о проекте
-        info_lines = [
-            "Искусственный интеллект учится водить машину с помощью генетического алгоритма.",
-            "Каждое поколение становится лучше благодаря естественному отбору.",
-            "Создавайте собственные трассы в редакторе и наблюдайте за эволюцией ИИ!"
-        ]
-        
-        for i, line in enumerate(info_lines):
-            info_text = self.small_font.render(line, True, TEXT_COLOR)
-            self.screen.blit(info_text, (SCREEN_WIDTH // 2 - info_text.get_width() // 2, 550 + i * 30))
-
-        # Рисуем кнопки
         for button in self.buttons:
             button.draw(self.screen)
-
-        # Подсказка внизу
-        hint = self.small_font.render("Используйте мышь для навигации по меню", True, (200, 200, 200))
-        self.screen.blit(hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 750))
 
 def main():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
