@@ -67,7 +67,7 @@ $RECYCLE.BIN/
 *.sublime-workspace
 *.sublime-project
 
-# Папки с сохраненными треками (создаются игрой)
+# Папки с сохраненными треками
 saved_tracks/
 saved_models/
 
