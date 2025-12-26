@@ -82,7 +82,7 @@ class NeuralNetwork:
         self.consistency = 0 
 
     def copy(self):
-        """Создание копии нейронной сети"""
+        #cоздание копии нейронной сети
         copy = NeuralNetwork(self.input_nodes, self.hidden_nodes, self.output_nodes)
         copy.weights_ih = self.weights_ih.copy()
         copy.weights_ho = self.weights_ho.copy()
@@ -93,7 +93,6 @@ class NeuralNetwork:
         return copy
 
     def predict(self, input_array):
-        """Прямое распространение сигнала"""
         # Преобразуем вход в столбец
         inputs = np.array(input_array, ndmin=2).T
         
@@ -116,7 +115,6 @@ class NeuralNetwork:
         return 1 / (1 + np.exp(-x))
 
     def mutate(self, mutation_rate=0.1):
-        """Мутация весов и смещений"""
         def mutate_array(arr):
             mask = np.random.random(arr.shape) < mutation_rate
             arr[mask] += np.random.randn(*arr[mask].shape) * 0.5
@@ -127,20 +125,18 @@ class NeuralNetwork:
         mutate_array(self.bias_o)
 
     def crossover(self, partner):
-        """Скрещивание с другой нейронной сетью"""
+        #скрещивание
         child = NeuralNetwork(self.input_nodes, self.hidden_nodes, self.output_nodes)
         
-        # Одноточечное скрещивание
+        #для одноточечного скрещивания
         crossover_point = np.random.randint(0, self.weights_ih.size)
         
-        # Преобразуем матрицы в плоские массивы для скрещивания
         ih_flat_self = self.weights_ih.flatten()
         ih_flat_partner = partner.weights_ih.flatten()
         ih_flat_child = np.concatenate([ih_flat_self[:crossover_point], 
                                         ih_flat_partner[crossover_point:]])
         child.weights_ih = ih_flat_child.reshape(self.weights_ih.shape)
-        
-        # Скрещивание для второй матрицы весов
+
         crossover_point = np.random.randint(0, self.weights_ho.size)
         ho_flat_self = self.weights_ho.flatten()
         ho_flat_partner = partner.weights_ho.flatten()
@@ -149,32 +145,6 @@ class NeuralNetwork:
         child.weights_ho = ho_flat_child.reshape(self.weights_ho.shape)
         
         return child
-
-    def save(self, filename):
-        """Сохранение нейронной сети в файл"""
-        data = {
-            'weights_ih': self.weights_ih.tolist(),
-            'weights_ho': self.weights_ho.tolist(),
-            'bias_h': self.bias_h.tolist(),
-            'bias_o': self.bias_o.tolist(),
-            'fitness': self.fitness,
-            'best_lap_time': self.best_lap_time,
-            'lap_count': self.lap_count
-        }
-        with open(filename, 'w') as f:
-            json.dump(data, f)
-
-    def load(self, filename):
-        """Загрузка нейронной сети из файла"""
-        with open(filename, 'r') as f:
-            data = json.load(f)
-        self.weights_ih = np.array(data['weights_ih'])
-        self.weights_ho = np.array(data['weights_ho'])
-        self.bias_h = np.array(data['bias_h'])
-        self.bias_o = np.array(data['bias_o'])
-        self.fitness = data['fitness']
-        self.best_lap_time = data.get('best_lap_time', float('inf'))
-        self.lap_count = data.get('lap_count', 0)
 
 class GeneticAlgorithm:
     def __init__(self, population_size, input_nodes, hidden_nodes, output_nodes):
@@ -194,7 +164,6 @@ class GeneticAlgorithm:
             self.population.append(NeuralNetwork(input_nodes, hidden_nodes, output_nodes))
     
     def evolve(self):
-        """Создание нового поколения"""
         self.generation += 1
         
         # Сортировка по приспособленности
@@ -205,7 +174,7 @@ class GeneticAlgorithm:
             self.best_fitness = self.population[0].fitness
             self.best_network = self.population[0].copy()
         
-        # Выбор лучших для следующего поколения
+        #выбор лучших для следующего поколения
         next_generation = []
         
         # Элитизм(сохраняем лучшие особи)
@@ -213,25 +182,23 @@ class GeneticAlgorithm:
         for i in range(elitism_count):
             next_generation.append(self.population[i].copy())
         
-        # Заполняем остаток популяции
         while len(next_generation) < self.population_size:
             #выбор родителей с учетом их приспособленности
             parent1 = self.select_parent()
             parent2 = self.select_parent()
             
-            # Скрещивание
+            #скрещивание
             if random.random() < self.crossover_rate:
                 child = parent1.crossover(parent2)
             else:
                 child = parent1.copy()
             
-            # Мутация
             child.mutate(self.mutation_rate)
             next_generation.append(child)
         
         self.population = next_generation
         
-        #сброс fitness для нового поколения
+        #для сброса fitness для нового поколения
         for network in self.population:
             network.fitness = 0
             network.total_time = 0
@@ -319,7 +286,6 @@ class TrackEditor:
                 if event.button == 1:
                     mouse_pos = pygame.mouse.get_pos()
 
-                    # Проверка кнопок
                     for i, button in enumerate(self.buttons):
                         if button.is_clicked(mouse_pos, True):
                             if i == 0: self.clear_track()
@@ -329,8 +295,7 @@ class TrackEditor:
                             elif i == 4: return "menu"
                             elif i == 5: self.increase_width()
                             elif i == 6: self.decrease_width()
-
-                    # Работа с треком
+                            
                     if 200 <= mouse_pos[0] <= 1000 and 100 <= mouse_pos[1] <= 700:
                         self.handle_track_click(mouse_pos)
 
@@ -404,7 +369,7 @@ class TrackEditor:
         self.points.append(new_point)
         self.show_message(f"Точка добавлена. Всего: {len(self.points)}", 90)
 
-        #автозамыкание
+        #для автозамыкания
         if len(self.points) >= 3 and not self.is_closed:
             first = self.points[0]
             if math.hypot(new_point[0] - first[0], new_point[1] - first[1]) < 30:
@@ -583,17 +548,14 @@ class TrackEditor:
         for y in range(100, 700, 40):
             pygame.draw.line(self.screen, GRID_COLOR, (200, y), (1000, y), 1)
 
-        # Оси
         pygame.draw.line(self.screen, GRID_COLOR, (600, 100), (600, 700), 2)
         pygame.draw.line(self.screen, GRID_COLOR, (200, 400), (1000, 400), 2)
 
-        # Рисуем трек
         if self.points:
             screen_points = [(p[0] + 400, 400 - p[1]) for p in self.points]
             if len(screen_points) > 1:
                 pygame.draw.lines(self.screen, TRACK_COLOR, self.is_closed, screen_points, 2)
 
-        # Границы трека
         if len(self.points) >= 2:
             inner_points, outer_points = self.calculate_smooth_track(self.points)
 
@@ -661,7 +623,7 @@ class TrackEditor:
                     text_rect = number_text.get_rect(center=(int(point[0]), int(point[1])))
                     self.screen.blit(number_text, text_rect)
 
-        #информация
+        #для информации
         status = f"Точек: {len(self.points)}"
         if self.is_closed:
             status += " (ЗАМКНУТ)"
@@ -820,7 +782,7 @@ class Car:
         # Для отслеживания прохождения стартовой линии
         self.last_crossed_start_time = 0
         self.can_cross_start = False  # Можно ли пересекать стартовую линию
-        self.start_crossing_cooldown = 30  #задержка перед повторным пересечением
+        self.start_crossing_cooldown = 30  #для задержки перед повторным пересечением
         
         # Чекпоинты
         self.checkpoints_passed = set()
@@ -951,7 +913,6 @@ class Car:
         return inner_points, outer_points
 
     def is_outside_track(self, track_data):
-        """Проверяет, находится ли машинка за пределами трека"""
         if not track_data or not track_data.get('points'):
             return False
             
@@ -979,7 +940,6 @@ class Car:
         return not inside
 
     def check_start_line_crossing(self, track_data):
-        """Проверяет пересечение стартовой линии"""
         if not track_data or 'start_line' not in track_data:
             return False
             
@@ -1015,7 +975,6 @@ class Car:
         return False
 
     def update_checkpoints(self, track_data):
-        """Обновляет состояние чекпоинтов"""
         if not track_data or not track_data.get('points'):
             return
             
@@ -1034,18 +993,17 @@ class Car:
                 min_dist = dist
                 nearest_idx = i
                 
-        # Если это следующий чекпоинт по порядку, отмечаем его
+        #если это следующий чекпоинт по порядку, отмечаем его
         if nearest_idx == self.next_checkpoint_index:
             self.checkpoints_passed.add(nearest_idx)
             self.next_checkpoint_index = (nearest_idx + 1) % len(points)
             self.checkpoint_progress = len(self.checkpoints_passed) / len(points)
             
-            # Если прошли все чекпоинты, разрешаем пересечение стартовой линии
+            #прошли все чекпоинты, разрешаем пересечение стартовой линии
             if len(self.checkpoints_passed) == len(points):
                 self.can_cross_start = True
 
-    def check_inactivity(self):
-        """Проверяет, не двигалась ли машинка слишком долго"""
+    def check_inactivity(self): #для проверки на движение
         speed = math.hypot(self.velocity_x, self.velocity_y)
         
         if speed < 0.1:
@@ -1116,7 +1074,6 @@ class Car:
             self.is_alive = False
             return
             
-        # Проверка бездействия
         if self.check_inactivity():
             self.is_alive = False
             return
@@ -1131,7 +1088,6 @@ class Car:
             if self.current_lap_time < self.best_lap_time:
                 self.best_lap_time = self.current_lap_time
                 
-            # Сбрасываем для следующего круга
             self.current_lap_time = 0
             self.checkpoints_passed.clear()
             self.next_checkpoint_index = 1
@@ -1147,7 +1103,7 @@ class Car:
     def update_physics(self):
         angle_rad = math.radians(self.angle)
         
-        # Ускорение
+        #для ускорения
         if self.engine_power != 0:
             self.velocity_x += self.engine_power * math.cos(angle_rad)
             self.velocity_y -= self.engine_power * math.sin(angle_rad)
@@ -1163,7 +1119,7 @@ class Car:
                 self.velocity_x += brake_x
                 self.velocity_y += brake_y
 
-        # Физика заноса
+        #для физики заноса
         speed = math.hypot(self.velocity_x, self.velocity_y)
         forward_vector = (math.cos(angle_rad), -math.sin(angle_rad))
         dot_product = (self.velocity_x * forward_vector[0] + 
@@ -1178,7 +1134,7 @@ class Car:
         else:
             current_traction = self.traction_slow if speed < 2 else self.traction_fast
 
-        # Поворот
+        #для поворота
         if abs(self.wheel_angle) > 1 and speed > 0.5:
             turn_force = math.tan(math.radians(self.wheel_angle)) * current_traction
             if is_moving_backward:
@@ -1192,7 +1148,7 @@ class Car:
         self.x += self.velocity_x
         self.y += self.velocity_y
 
-        # Огр. скорости
+        #для огр. скорости
         speed = math.hypot(self.velocity_x, self.velocity_y)
         if speed > self.max_speed:
             scale = self.max_speed / speed
@@ -1203,34 +1159,33 @@ class Car:
         """Расчет фитнес-функции - основное внимание на время кругов"""
         fitness = 0
         
-        # Основной компонент - количество кругов (большой бонус)
         fitness += self.lap_count * 1000
         
-        # Бонус за победу (10 кругов)
+        #бонус за победу (10 кругов)
         if self.lap_count >= self.WINNING_LAPS:
             fitness += 10000  #бонус за победу
         
-        # Бонус за лучшее время круга (чем меньше время, тем больше бонус)
+        #бонус за лучшее время круга (чем меньше время, тем больше бонус)
         if self.best_lap_time < float('inf'):
             # меньшее время = больший бонус
             time_bonus = max(0, 5000 / (self.best_lap_time + 1))  
             fitness += time_bonus
             
-        # Бонус за стабильность (если есть несколько кругов с похожим временем)
+        #бонус за стабильность (если есть несколько кругов с похожим временем)
         if self.lap_count > 1 and self.last_lap_time > 0 and self.best_lap_time < float('inf'):
             time_diff = abs(self.last_lap_time - self.best_lap_time)
             if time_diff < 60:  
                 consistency_bonus = 100 * (60 - time_diff) / 60
                 fitness += consistency_bonus
         
-        # Бонус за прогресс по чекпоинтам
+        #бонус за прогресс по чекпоинтам
         fitness += self.checkpoint_progress * 100
         
-        # Штраф за столкновения
+        #штраф за столкновения
         if min(self.sensor_distances) < 20:
             fitness *= 0.9
         
-        # Штраф за слишком медленное движение
+        #штраф за слишком медленное движение
         speed = math.hypot(self.velocity_x, self.velocity_y)
         if speed < 0.5:
             fitness *= 0.95
@@ -1272,7 +1227,7 @@ class CarGame:
         self.start_position = None
         self.start_angle = 0
         
-        self.population_size = 50
+        self.population_size = 40
         self.ga = GeneticAlgorithm(
             population_size=self.population_size,
             input_nodes=7,  # 5 сенсоров + скорость + угол
@@ -1357,7 +1312,7 @@ class CarGame:
         for _ in range(iterations):
             self.generation_time += 1
             
-            # Обновление всех автомобилей
+            #для обновления всех автомобилей
             alive_count = 0
             for car in self.cars:
                 if car.is_alive:
@@ -1378,7 +1333,7 @@ class CarGame:
                     self.best_car_index = max(alive_cars, 
                                             key=lambda i: self.cars[i].fitness)
             
-            # Проверка завершения поколения
+            # для проверки завершения поколения
             if alive_count == 0 or self.generation_time > 3000:  
                 self.next_generation()
 
@@ -1445,7 +1400,6 @@ class CarGame:
         return "game"
 
     def force_next_generation(self):
-        """Принудительный переход к следующей популяции"""
         self.next_generation()
 
     def draw(self):
@@ -1545,7 +1499,6 @@ class CarGame:
             hint_surf = self.small_font.render(hint, True, YELLOW)
             self.screen.blit(hint_surf, (1020, stat_y + stat_height + 70 + i * 25))
 
-        # Кнопки
         for button in self.buttons:
             button.draw(self.screen)
 
